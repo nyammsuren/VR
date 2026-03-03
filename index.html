@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>router1 - Realistic Grab Plug (VR)</title>
+  <title>router1 - Grab Plug (VR) + RAZ Green + Snap Fix</title>
   <style>
     body{margin:0; overflow:hidden; background:#111;}
     #hint{
       position:fixed; left:12px; top:12px; z-index:10;
       color:#eee; font:14px/1.35 system-ui,Segoe UI,Roboto,Arial;
       background:rgba(0,0,0,.45); padding:10px 12px; border:1px solid rgba(255,255,255,.12);
-      border-radius:12px; max-width:680px;
+      border-radius:12px; max-width:760px;
     }
     #hint b{display:block;margin-bottom:4px}
     #hint small{opacity:.85}
+    code{background:rgba(255,255,255,.08); padding:2px 6px; border-radius:8px}
   </style>
 
   <script type="importmap">
@@ -28,10 +29,11 @@
 
 <body>
 <div id="hint">
-  <b>Realistic Grab Plug (VR)</b>
+  <b>VR Plug + RAZ Green</b>
   <small>
-    • VR: Plug руу чиглүүлээд <b>trigger</b> дар → “барина”. Суллахад release. Ойрхон байвал snap + ногоон.<br/>
-    • Хэрвээ “толгой дээр” байвал root offset-ийг (код дотор) y-ээр илүү сөрөг болго: -1.2 → -1.6 гэх мэт.
+    • VR: Plug руу чиглүүлээд <b>trigger</b> дар → барина. Суллахад release. Ойрхон байвал snap + <b>RAZ ногоон</b>.<br/>
+    • Хэт дээш snap хийвэл: <code>snapYOffset</code>-ийг өсгөнө (0.18 → 0.28).<br/>
+    • “Толгой дээр” байвал: <code>rootOffset</code>-ийн y-г илүү сөрөг болго (-1.2 → -1.6).
   </small>
 </div>
 
@@ -41,12 +43,26 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 
+/* =============================
+   CONFIG (тааруулах 3 утга)
+============================= */
+// ✅ Толгой дээр байвал y-г илүү - болго, ойр/холыг z-р тааруул
+const rootOffset = new THREE.Vector3(0.0, -1.2, -2.6);
+
+// ✅ Snap хийх өндөр бууруулна (ихсэх тусам илүү доош сууна)
+const snapYOffset = 0.18;
+
+// ✅ Router/орчныг нэг байрлалд lock хийх эргэлт
+// Ихэнхдээ доош харсан байвал X-ээр ±90° таарна.
+const lockRotX = -Math.PI / 2;   // буруу бол +Math.PI/2 болгоод турш
+const lockRotY = 0;             // порттой талыг өөр тийш харуулах бол Math.PI гэх мэт
+const lockRotZ = 0;
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 5000);
-
-// Desktop-д зориулж байрлал өгнө (VR үед headset pose орлоно)
+// desktop-д зориулсан байрлал (VR үед headset pose орлоно)
 camera.position.set(0, 1.6, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -65,10 +81,12 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.1);
 sun.position.set(6, 10, 6);
 scene.add(sun);
 
-// ориентир
+// жижиг ориентир
 scene.add(new THREE.GridHelper(30, 30, 0x333333, 0x222222));
 
-// -------- Helpers
+/* =============================
+   Helpers
+============================= */
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const dragPlane = new THREE.Plane();
@@ -108,14 +126,15 @@ function fitCamera(obj){
   return { maxDim };
 }
 
-// -------- State from GLB
+/* =============================
+   GLB state
+============================= */
 let root=null, plug=null, routerPort=null, razPort=null, raz=null;
 let connected=false;
 
-// Кабель
+// Cable
 let cableMesh=null;
 let cableRadius=0.01;
-
 const cableMat = new THREE.MeshStandardMaterial({
   color: 0xff6a00,
   emissive: 0xff2200,
@@ -127,19 +146,21 @@ const cableMat = new THREE.MeshStandardMaterial({
 // Plug дээр “утас гардаг” local цэг
 let plugCableLocal = new THREE.Vector3(0,0,-0.05);
 
-// Plug-ийн mesh-үүд (өнгө солих)
+/* =============================
+   Plug material state (idle/near/connected)
+============================= */
 const plugMeshes = [];
 function cachePlugMaterials(){
   plugMeshes.length = 0;
   plug.traverse(o=>{
     if (o.isMesh && o.material){
       plugMeshes.push(o);
-      if (!o.userData.__origMatCached){
+      if (!o.userData.__plugOrigCached){
         const m = o.material;
-        o.userData.__origMatCached = true;
-        o.userData.__origColor = (m.color ? m.color.clone() : null);
-        o.userData.__origEmissive = (m.emissive ? m.emissive.clone() : null);
-        o.userData.__origEmissiveIntensity = (typeof m.emissiveIntensity === "number") ? m.emissiveIntensity : 0;
+        o.userData.__plugOrigCached = true;
+        o.userData.__plugOrigColor = (m.color ? m.color.clone() : null);
+        o.userData.__plugOrigEmissive = (m.emissive ? m.emissive.clone() : null);
+        o.userData.__plugOrigEmissiveIntensity = (typeof m.emissiveIntensity === "number") ? m.emissiveIntensity : 0;
       }
     }
   });
@@ -150,9 +171,9 @@ function setPlugState(state){
     if (!m) continue;
 
     if (state === "idle"){
-      if (o.userData.__origColor && m.color) m.color.copy(o.userData.__origColor);
-      if (o.userData.__origEmissive && m.emissive) m.emissive.copy(o.userData.__origEmissive);
-      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = o.userData.__origEmissiveIntensity ?? 0;
+      if (o.userData.__plugOrigColor && m.color) m.color.copy(o.userData.__plugOrigColor);
+      if (o.userData.__plugOrigEmissive && m.emissive) m.emissive.copy(o.userData.__plugOrigEmissive);
+      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = o.userData.__plugOrigEmissiveIntensity ?? 0;
       continue;
     }
     if (state === "near"){
@@ -170,17 +191,62 @@ function setPlugState(state){
   }
 }
 
-function getRazTargetWorld(out){
-  if (razPort) return razPort.getWorldPosition(out);
-  if (raz) return raz.getWorldPosition(out);
-  return root.getWorldPosition(out);
+/* =============================
+   RAZ material state (idle/connected)
+   ✅ Залгаад RAZ ногоон болгоно
+============================= */
+const razMeshes = [];
+function cacheRazMaterials(){
+  razMeshes.length = 0;
+  if (!raz) return;
+  raz.traverse(o=>{
+    if (o.isMesh && o.material){
+      razMeshes.push(o);
+      if (!o.userData.__razOrigCached){
+        const m = o.material;
+        o.userData.__razOrigCached = true;
+        o.userData.__razOrigColor = (m.color ? m.color.clone() : null);
+        o.userData.__razOrigEmissive = (m.emissive ? m.emissive.clone() : null);
+        o.userData.__razOrigEmissiveIntensity = (typeof m.emissiveIntensity === "number") ? m.emissiveIntensity : 0;
+      }
+    }
+  });
+}
+function setRAZState(state){
+  for (const o of razMeshes){
+    const m = o.material;
+    if (!m) continue;
+
+    if (state === "idle"){
+      if (o.userData.__razOrigColor && m.color) m.color.copy(o.userData.__razOrigColor);
+      if (o.userData.__razOrigEmissive && m.emissive) m.emissive.copy(o.userData.__razOrigEmissive);
+      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = o.userData.__razOrigEmissiveIntensity ?? 0;
+      continue;
+    }
+    if (state === "connected"){
+      if (m.color) m.color.set(0x00ff66);
+      if (m.emissive) m.emissive.set(0x00ff66);
+      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.75;
+      continue;
+    }
+  }
 }
 
+/* =============================
+   Positions & cable
+============================= */
+function getRazTargetWorld(out){
+  // ✅ боломжтой бол RazPort-ыг ашиглана (илүү зөв target)
+  if (razPort) return razPort.getWorldPosition(out);
+  // fallback: RAZ object-ийн төв (заримдаа өндөр болж асуудал үүсгэдэг)
+  if (raz) return raz.getWorldPosition(out);
+  // fallback
+  return root.getWorldPosition(out);
+}
 function getPlugCableWorld(out){
   if (!plug) return out.set(0,0,0);
   return plug.localToWorld(out.copy(plugCableLocal));
 }
-
 function updateCable(){
   if (!root || !plug || !routerPort) return;
 
@@ -188,7 +254,7 @@ function updateCable(){
   const end = getPlugCableWorld(vB);
 
   const mid = start.clone().lerp(end, 0.5);
-  mid.y -= 0.25; // жаахан унжуулах
+  mid.y -= 0.25;
 
   const curve = new THREE.CatmullRomCurve3([start.clone(), mid, end.clone()]);
   const tube = new THREE.TubeGeometry(curve, 70, cableRadius, 10, false);
@@ -202,7 +268,9 @@ function updateCable(){
   }
 }
 
-// Snap + Orientation
+/* =============================
+   Snap + Orientation
+============================= */
 function orientPlugTowardRaz(forceInstant=false){
   if (!plug || !root) return;
   const p = plug.getWorldPosition(vA);
@@ -218,25 +286,46 @@ function orientPlugTowardRaz(forceInstant=false){
 }
 
 function snapIfNear(){
-  const targetW = getRazTargetWorld(vA);
+  // ✅ targetW-г бага зэрэг ДОШЛУУЛЖ “хэт дээш үсрэх”-ийг засна
+  const targetW = getRazTargetWorld(vA).clone();
+  targetW.y -= snapYOffset;
+
   const plugW = plug.getWorldPosition(vB);
   const d = targetW.distanceTo(plugW);
 
   const snapDist = Math.max(0.12, cableRadius*35);
 
   if (d < snapDist){
-    connected=true;
+    connected = true;
+
     const snapLocal = root.worldToLocal(targetW.clone());
     plug.position.copy(snapLocal);
+
     orientPlugTowardRaz(true);
-    setPlugState("connected");
+
+    setPlugState("connected");   // plug ногоон
+    setRAZState("connected");    // ✅ RAZ ногоон
   } else {
-    connected=false;
+    connected = false;
     setPlugState("idle");
+    setRAZState("idle");
   }
 }
 
-// -------- Load GLB
+/* =============================
+   Router orientation lock
+============================= */
+function lockRouterPose(){
+  if (!root) return;
+  root.rotation.set(0,0,0);
+  root.rotateX(lockRotX);
+  root.rotateY(lockRotY);
+  root.rotateZ(lockRotZ);
+}
+
+/* =============================
+   Load GLB
+============================= */
 const loader = new GLTFLoader();
 loader.load("./router1.glb", (gltf)=>{
   root = gltf.scene;
@@ -249,6 +338,10 @@ loader.load("./router1.glb", (gltf)=>{
 
   if (!plug) { alert('GLB дотор "Plug" алга'); return; }
   if (!routerPort) { alert('GLB дотор "RouterPort" алга'); return; }
+  if (!raz && !razPort) {
+    // RAZ олдохгүй байж болно, гэхдээ snap ажиллахын тулд дор хаяж RazPort эсвэл RAZ хэрэгтэй
+    console.warn('Анхаар: GLB дотор "RAZ" эсвэл "RazPort" олдсонгүй (snap target алдаа гарч магадгүй).');
+  }
 
   // center
   const box = new THREE.Box3().setFromObject(root);
@@ -260,6 +353,10 @@ loader.load("./router1.glb", (gltf)=>{
   const targetSize = 6;
   root.scale.setScalar(targetSize / len);
 
+  // lock orientation (router дандаа “зөв” байрлалтай)
+  lockRouterPose();
+
+  // camera fit for desktop preview
   const fit = fitCamera(root);
   cableRadius = Math.max(0.003, fit.maxDim * 0.006);
 
@@ -274,23 +371,26 @@ loader.load("./router1.glb", (gltf)=>{
   cachePlugMaterials();
   setPlugState("idle");
 
-  // ✅ ЭНЭ Л “ТОЛГОЙ ДЭЭР”-ийг ЗАСНА
-  // x=0 (дунд), y=-1.2 (доош), z=-2.6 (урагш)
-  root.position.add(new THREE.Vector3(0.0, -0.5, -2.6));
+  cacheRazMaterials();
+  setRAZState("idle");
+
+  // ✅ “толгой дээр” биш: доош + урагш
+  root.position.add(rootOffset);
 
   orientPlugTowardRaz(true);
   updateCable();
 }, undefined, (e)=>console.error(e));
 
-// VR session эхлэхэд 1 удаа дахин байрлуулж өгнө (зарим headset дээр хэрэгтэй)
+// VR эхлэхэд дахин баталгаатай lock + position
 renderer.xr.addEventListener("sessionstart", ()=>{
   if (!root) return;
-  root.position.set(0.0, -1.2, -2.6);
+  root.position.set(rootOffset.x, rootOffset.y, rootOffset.z);
+  lockRouterPose();
 });
 
-// =============================
-// Desktop drag (VR биш үед)
-// =============================
+/* =============================
+   Desktop drag (VR биш үед)
+============================= */
 let dragging=false;
 
 renderer.domElement.addEventListener("pointerdown", (e)=>{
@@ -302,6 +402,7 @@ renderer.domElement.addEventListener("pointerdown", (e)=>{
   controls.enabled=false;
 
   setPlugState("near");
+  setRAZState("idle");
 
   const plugPos = plug.getWorldPosition(vA);
   const normal = camera.getWorldDirection(vB).normalize();
@@ -321,7 +422,6 @@ renderer.domElement.addEventListener("pointermove", (e)=>{
   plug.position.copy(local);
 
   orientPlugTowardRaz(false);
-  updateCable();
 
   const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
   const nearDist = Math.max(0.18, cableRadius*45);
@@ -335,16 +435,15 @@ renderer.domElement.addEventListener("pointerup", (e)=>{
   controls.enabled=true;
 
   snapIfNear();
-  updateCable();
 
   try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch{}
 });
 
 renderer.domElement.addEventListener("pointercancel", ()=>{ dragging=false; controls.enabled=true; setPlugState("idle"); });
 
-// =============================
-// VR: Realistic grab (attach)
-// =============================
+/* =============================
+   VR: Realistic grab (attach to controller)
+============================= */
 const xrRaycaster = new THREE.Raycaster();
 const tempMatrix = new THREE.Matrix4();
 
@@ -372,16 +471,17 @@ function controllerIntersections(){
 function startGrab(){
   grabbed = true;
   connected = false;
-  controller.attach(plug);      // ✅ бодит барих мэдрэмж
+  setRAZState("idle");      // ✅ өмнөх ногооныг арилгана
+  controller.attach(plug);  // ✅ бодит барих мэдрэмж
   setPlugState("near");
 }
 
 function endGrab(){
   grabbed = false;
   scene.attach(plug);
+
   snapIfNear();
   orientPlugTowardRaz(false);
-  updateCable();
 }
 
 controller.addEventListener("selectstart", ()=>{
@@ -400,9 +500,9 @@ controller.addEventListener("selectend", ()=>{
   endGrab();
 });
 
-// =============================
-// Resize + Loop (WebXR)
-// =============================
+/* =============================
+   Resize + Loop
+============================= */
 addEventListener("resize", ()=>{
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
@@ -416,8 +516,9 @@ renderer.setAnimationLoop(()=>{
   if (!renderer.xr.isPresenting) controls.update();
 
   const moving = dragging || grabbed;
-  if (moving) updateCable();
-  else {
+  if (moving) {
+    updateCable();
+  } else {
     frame++;
     if (frame % 15 === 0) updateCable();
   }
