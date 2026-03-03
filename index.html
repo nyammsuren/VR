@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>router1 - Drag Plug (VR)</title>
+  <title>router1 - Realistic Grab Plug (VR)</title>
   <style>
     body{margin:0; overflow:hidden; background:#111;}
     #hint{
       position:fixed; left:12px; top:12px; z-index:10;
       color:#eee; font:14px/1.35 system-ui,Segoe UI,Roboto,Arial;
       background:rgba(0,0,0,.45); padding:10px 12px; border:1px solid rgba(255,255,255,.12);
-      border-radius:12px; max-width:560px;
+      border-radius:12px; max-width:680px;
     }
     #hint b{display:block;margin-bottom:4px}
     #hint small{opacity:.85}
@@ -19,31 +19,35 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js",
-      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/"
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
     }
   }
   </script>
 </head>
+
 <body>
 <div id="hint">
-  <b>VR Drag Plug</b>
+  <b>Realistic Grab Plug (VR)</b>
   <small>
-    • Desktop: plug дээр mouse-оор дарж чир<br/>
-    • VR: controller-оор plug руу чиглүүлээд trigger дарж бариад, хөдөлгө. Release хийхэд ойр бол “snap” + ногоон болно.
+    • VR: Plug руу чиглүүлээд <b>trigger</b> дар → “барина”. Суллахад release. Ойрхон байвал snap + ногоон.<br/>
+    • Хэрвээ “толгой дээр” байвал root offset-ийг (код дотор) y-ээр илүү сөрөг болго: -1.2 → -1.6 гэх мэт.
   </small>
 </div>
 
 <script type="module">
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { VRButton } from "three/examples/jsm/webxr/VRButton.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { VRButton } from "three/addons/webxr/VRButton.js";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 5000);
+
+// Desktop-д зориулж байрлал өгнө (VR үед headset pose орлоно)
+camera.position.set(0, 1.6, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setSize(innerWidth, innerHeight);
@@ -61,7 +65,10 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.1);
 sun.position.set(6, 10, 6);
 scene.add(sun);
 
-// --- helpers ---
+// ориентир
+scene.add(new THREE.GridHelper(30, 30, 0x333333, 0x222222));
+
+// -------- Helpers
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const dragPlane = new THREE.Plane();
@@ -87,13 +94,13 @@ function fitCamera(obj){
 
   const fov = camera.fov * (Math.PI/180);
   let dist = (maxDim/2)/Math.tan(fov/2);
-  dist *= 2.5;
+  dist *= 2.4;
 
   camera.position.set(c.x + dist, c.y + dist*0.55, c.z + dist);
   camera.lookAt(c);
 
   camera.near = Math.max(0.01, dist/200);
-  camera.far  = dist*50;
+  camera.far  = dist*60;
   camera.updateProjectionMatrix();
 
   controls.target.copy(c);
@@ -101,10 +108,11 @@ function fitCamera(obj){
   return { maxDim };
 }
 
-// --- state ---
+// -------- State from GLB
 let root=null, plug=null, routerPort=null, razPort=null, raz=null;
-let dragging=false, connected=false;
+let connected=false;
 
+// Кабель
 let cableMesh=null;
 let cableRadius=0.01;
 
@@ -118,9 +126,8 @@ const cableMat = new THREE.MeshStandardMaterial({
 
 // Plug дээр “утас гардаг” local цэг
 let plugCableLocal = new THREE.Vector3(0,0,-0.05);
-let flipZ = false;
 
-// Plug mesh-үүдийн материалын хуучин өнгийг хадгална
+// Plug-ийн mesh-үүд (өнгө солих)
 const plugMeshes = [];
 function cachePlugMaterials(){
   plugMeshes.length = 0;
@@ -137,7 +144,6 @@ function cachePlugMaterials(){
     }
   });
 }
-
 function setPlugState(state){
   for (const o of plugMeshes){
     const m = o.material;
@@ -169,6 +175,7 @@ function getRazTargetWorld(out){
   if (raz) return raz.getWorldPosition(out);
   return root.getWorldPosition(out);
 }
+
 function getPlugCableWorld(out){
   if (!plug) return out.set(0,0,0);
   return plug.localToWorld(out.copy(plugCableLocal));
@@ -181,10 +188,10 @@ function updateCable(){
   const end = getPlugCableWorld(vB);
 
   const mid = start.clone().lerp(end, 0.5);
-  mid.y -= Math.max(0.05, controls.target.distanceTo(camera.position) * 0.02);
+  mid.y -= 0.25; // жаахан унжуулах
 
   const curve = new THREE.CatmullRomCurve3([start.clone(), mid, end.clone()]);
-  const tube = new THREE.TubeGeometry(curve, 90, cableRadius, 10, false);
+  const tube = new THREE.TubeGeometry(curve, 70, cableRadius, 10, false);
 
   if (!cableMesh){
     cableMesh = new THREE.Mesh(tube, cableMat);
@@ -195,7 +202,8 @@ function updateCable(){
   }
 }
 
-function orientPlugTowardRaz(){
+// Snap + Orientation
+function orientPlugTowardRaz(forceInstant=false){
   if (!plug || !root) return;
   const p = plug.getWorldPosition(vA);
   const t = getRazTargetWorld(vB);
@@ -204,10 +212,31 @@ function orientPlugTowardRaz(){
   const m = new THREE.Matrix4().lookAt(p, t, new THREE.Vector3(0,1,0));
   const q = new THREE.Quaternion().setFromRotationMatrix(m);
   q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI));
-  plug.quaternion.slerp(q, 0.35);
+
+  if (forceInstant) plug.quaternion.copy(q);
+  else plug.quaternion.slerp(q, 0.9);
 }
 
-// --- load ---
+function snapIfNear(){
+  const targetW = getRazTargetWorld(vA);
+  const plugW = plug.getWorldPosition(vB);
+  const d = targetW.distanceTo(plugW);
+
+  const snapDist = Math.max(0.12, cableRadius*35);
+
+  if (d < snapDist){
+    connected=true;
+    const snapLocal = root.worldToLocal(targetW.clone());
+    plug.position.copy(snapLocal);
+    orientPlugTowardRaz(true);
+    setPlugState("connected");
+  } else {
+    connected=false;
+    setPlugState("idle");
+  }
+}
+
+// -------- Load GLB
 const loader = new GLTFLoader();
 loader.load("./router1.glb", (gltf)=>{
   root = gltf.scene;
@@ -221,10 +250,12 @@ loader.load("./router1.glb", (gltf)=>{
   if (!plug) { alert('GLB дотор "Plug" алга'); return; }
   if (!routerPort) { alert('GLB дотор "RouterPort" алга'); return; }
 
+  // center
   const box = new THREE.Box3().setFromObject(root);
   const center = box.getCenter(new THREE.Vector3());
   root.position.sub(center);
 
+  // scale
   const len = box.getSize(new THREE.Vector3()).length();
   const targetSize = 6;
   root.scale.setScalar(targetSize / len);
@@ -235,19 +266,33 @@ loader.load("./router1.glb", (gltf)=>{
   routerPort.visible = false;
   if (razPort) razPort.visible = false;
 
+  // plug cable local point (approx by bbox)
   const pb = new THREE.Box3().setFromObject(plug);
   const ps = pb.getSize(new THREE.Vector3());
-  const zSign = flipZ ? +1 : -1;
-  plugCableLocal = new THREE.Vector3(0, 0, zSign * (ps.z * 0.55 + ps.z * 0.10));
+  plugCableLocal = new THREE.Vector3(0, 0, -(ps.z * 0.55 + ps.z * 0.10));
 
   cachePlugMaterials();
   setPlugState("idle");
+
+  // ✅ ЭНЭ Л “ТОЛГОЙ ДЭЭР”-ийг ЗАСНА
+  // x=0 (дунд), y=-1.2 (доош), z=-2.6 (урагш)
+  root.position.add(new THREE.Vector3(0.0, -1.2, -2.6));
+
+  orientPlugTowardRaz(true);
   updateCable();
 }, undefined, (e)=>console.error(e));
 
-/* ---------------------------
-   Desktop drag (хуучин нь)
-----------------------------*/
+// VR session эхлэхэд 1 удаа дахин байрлуулж өгнө (зарим headset дээр хэрэгтэй)
+renderer.xr.addEventListener("sessionstart", ()=>{
+  if (!root) return;
+  root.position.set(0.0, -1.2, -2.6);
+});
+
+// =============================
+// Desktop drag (VR биш үед)
+// =============================
+let dragging=false;
+
 renderer.domElement.addEventListener("pointerdown", (e)=>{
   if (!root || !plug) return;
   if (!pick(plug, e)) return;
@@ -275,7 +320,7 @@ renderer.domElement.addEventListener("pointermove", (e)=>{
   const local = root.worldToLocal(hit.clone());
   plug.position.copy(local);
 
-  orientPlugTowardRaz();
+  orientPlugTowardRaz(false);
   updateCable();
 
   const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
@@ -290,43 +335,23 @@ renderer.domElement.addEventListener("pointerup", (e)=>{
   controls.enabled=true;
 
   snapIfNear();
-
   updateCable();
+
   try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch{}
 });
 
 renderer.domElement.addEventListener("pointercancel", ()=>{ dragging=false; controls.enabled=true; setPlugState("idle"); });
-renderer.domElement.addEventListener("pointerleave", ()=>{ dragging=false; controls.enabled=true; setPlugState("idle"); });
 
-function snapIfNear(){
-  const targetW = getRazTargetWorld(vA);
-  const plugW = plug.getWorldPosition(vB);
-  const d = targetW.distanceTo(plugW);
-
-  const snapDist = Math.max(0.12, cableRadius*35);
-
-  if (d < snapDist){
-    connected=true;
-    const snapLocal = root.worldToLocal(targetW.clone());
-    plug.position.copy(snapLocal);
-    orientPlugTowardRaz();
-    setPlugState("connected");
-  } else {
-    connected=false;
-    setPlugState("idle");
-  }
-}
-
-/* ---------------------------
-   VR: controller grab
-----------------------------*/
+// =============================
+// VR: Realistic grab (attach)
+// =============================
 const xrRaycaster = new THREE.Raycaster();
 const tempMatrix = new THREE.Matrix4();
 
 const controller = renderer.xr.getController(0);
 scene.add(controller);
 
-// visible laser
+// лазер
 const laserGeom = new THREE.BufferGeometry().setFromPoints([
   new THREE.Vector3(0,0,0),
   new THREE.Vector3(0,0,-1)
@@ -335,73 +360,73 @@ const laser = new THREE.Line(laserGeom, new THREE.LineBasicMaterial({ color: 0xf
 laser.scale.z = 12;
 controller.add(laser);
 
-let vrDragging = false;
-const grabOffset = new THREE.Vector3(); // plugWorld - controllerWorld
+let grabbed = false;
 
-function controllerRaycast(){
+function controllerIntersections(){
   tempMatrix.identity().extractRotation(controller.matrixWorld);
   xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
   xrRaycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
-  if (!plug) return [];
   return xrRaycaster.intersectObject(plug, true);
+}
+
+function startGrab(){
+  grabbed = true;
+  connected = false;
+  controller.attach(plug);      // ✅ бодит барих мэдрэмж
+  setPlugState("near");
+}
+
+function endGrab(){
+  grabbed = false;
+  scene.attach(plug);
+  snapIfNear();
+  orientPlugTowardRaz(false);
+  updateCable();
 }
 
 controller.addEventListener("selectstart", ()=>{
   if (!root || !plug) return;
+  if (grabbed) return;
 
-  const hits = controllerRaycast();
+  const hits = controllerIntersections();
   if (!hits.length) return;
 
-  // Start grab
-  vrDragging = true;
-  connected = false;
-
-  const controllerW = controller.getWorldPosition(vA);
-  const plugW = plug.getWorldPosition(vB);
-  grabOffset.copy(plugW).sub(controllerW);
-
-  setPlugState("near");
+  startGrab();
 });
 
 controller.addEventListener("selectend", ()=>{
-  if (!vrDragging || !root || !plug) return;
-  vrDragging = false;
-  snapIfNear();
-  updateCable();
+  if (!root || !plug) return;
+  if (!grabbed) return;
+  endGrab();
 });
 
-function updateVRGrab(){
-  if (!vrDragging || !root || !plug) return;
-
-  const controllerW = controller.getWorldPosition(vA);
-  const newPlugW = controllerW.clone().add(grabOffset);
-
-  const local = root.worldToLocal(newPlugW);
-  plug.position.copy(local);
-
-  orientPlugTowardRaz();
-  updateCable();
-
-  const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
-  const nearDist = Math.max(0.18, cableRadius*45);
-  if (!connected) setPlugState(d < nearDist ? "near" : "idle");
-}
-
-/* ---------------------------
-   Resize + Loop (WebXR)
-----------------------------*/
+// =============================
+// Resize + Loop (WebXR)
+// =============================
 addEventListener("resize", ()=>{
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
 
+// кабель update-ийг хөнгөрүүлэх
+let frame = 0;
+
 renderer.setAnimationLoop(()=>{
-  // VR үед OrbitControls хэрэггүй
   if (!renderer.xr.isPresenting) controls.update();
 
-  if (root && plug && routerPort) updateCable();
-  updateVRGrab();
+  const moving = dragging || grabbed;
+  if (moving) updateCable();
+  else {
+    frame++;
+    if (frame % 15 === 0) updateCable();
+  }
+
+  if (grabbed && root && plug){
+    const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
+    const nearDist = Math.max(0.18, cableRadius*45);
+    setPlugState(d < nearDist ? "near" : "idle");
+  }
 
   renderer.render(scene, camera);
 });
