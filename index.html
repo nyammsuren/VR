@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>router1 - Grab Plug (VR) + RAZ Green + Snap Fix</title>
+  <title>VR Router + Plug (Grab, Move, Pinch Scale, Joystick, Magnet Snap)</title>
+
   <style>
     body{margin:0; overflow:hidden; background:#111;}
-    #hint{
+    #hud{
       position:fixed; left:12px; top:12px; z-index:10;
       color:#eee; font:14px/1.35 system-ui,Segoe UI,Roboto,Arial;
       background:rgba(0,0,0,.45); padding:10px 12px; border:1px solid rgba(255,255,255,.12);
-      border-radius:12px; max-width:760px;
+      border-radius:12px; max-width:860px;
     }
-    #hint b{display:block;margin-bottom:4px}
-    #hint small{opacity:.85}
+    #hud b{display:block;margin-bottom:4px}
+    #hud small{opacity:.85}
     code{background:rgba(255,255,255,.08); padding:2px 6px; border-radius:8px}
   </style>
 
@@ -28,12 +29,15 @@
 </head>
 
 <body>
-<div id="hint">
-  <b>VR Plug + RAZ Green</b>
+<div id="hud">
+  <b>VR Router + Plug (All interactions)</b>
   <small>
-    • VR: Plug руу чиглүүлээд <b>trigger</b> дар → барина. Суллахад release. Ойрхон байвал snap + <b>RAZ ногоон</b>.<br/>
-    • Хэт дээш snap хийвэл: <code>snapYOffset</code>-ийг өсгөнө (0.18 → 0.28).<br/>
-    • “Толгой дээр” байвал: <code>rootOffset</code>-ийн y-г илүү сөрөг болго (-1.2 → -1.6).
+    • <b>Trigger</b> (select): Plug барих/суллах<br/>
+    • <b>Grip</b> (squeeze): Router (бүх сүлжээ) барих/суллах<br/>
+    • <b>2 controller Grip</b> зэрэг дарвал: <b>Pinch scale</b> (хоорондын зайгаар томруулах/жижигрүүлэх)<br/>
+    • <b>Joystick</b>: нааш/цааш, хажуу тийш хөдөлгөнө (router-г)<br/>
+    • Ойртохоор Plug “магнит” шиг татагдаж snap → <b>RAZ ногоон</b><br/>
+    • Хэт дээш snap: <code>snapYOffset</code>-г ихэсгэ (0.18 → 0.28). Толгой дээр байвал <code>rootOffset.y</code>-г - болго.
   </small>
 </div>
 
@@ -44,25 +48,34 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 
 /* =============================
-   CONFIG (тааруулах 3 утга)
+   CONFIG (чи энд л тааруулна)
 ============================= */
-// ✅ Толгой дээр байвал y-г илүү - болго, ойр/холыг z-р тааруул
-const rootOffset = new THREE.Vector3(0.0, -1.2, -2.6);
-
-// ✅ Snap хийх өндөр бууруулна (ихсэх тусам илүү доош сууна)
-const snapYOffset = 0.30;
-
-// ✅ Router/орчныг нэг байрлалд lock хийх эргэлт
-// Ихэнхдээ доош харсан байвал X-ээр ±90° таарна.
-const lockRotX = -Math.PI / 2;   // буруу бол +Math.PI/2 болгоод турш
-const lockRotY = 0;             // порттой талыг өөр тийш харуулах бол Math.PI гэх мэт
+const rootOffset = new THREE.Vector3(0.0, -0.6, -2.6);  // доош + урагш
+const snapYOffset = 0.32;                               // snap хэт дээш бол өсгөнө
+const lockRotX = -Math.PI/2;                            // router orientation lock (буруу бол +Math.PI/2)
+const lockRotY = 0;
 const lockRotZ = 0;
 
+// Joystick move speed
+const moveSpeed = 0.04;   // нааш/цааш + хажуу
+const liftSpeed = 0.025;  // (хэрэв хүсвэл Y хөдөлгөөн)
+
+// Scale clamp
+const minScale = 0.35;
+const maxScale = 4.0;
+
+// Magnet snap
+const magnetRangeBase = 0.45;  // ойртож татах зай (scale-тэй хамт өснө)
+const snapRangeBase = 0.18;    // яг snap болох зай (scale-тэй хамт өснө)
+const magnetStrength = 0.18;   // 0.1–0.3 (ихсэх тусам хурдан татна)
+
+/* =============================
+   Scene setup
+============================= */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 5000);
-// desktop-д зориулсан байрлал (VR үед headset pose орлоно)
 camera.position.set(0, 1.6, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -81,50 +94,7 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.1);
 sun.position.set(6, 10, 6);
 scene.add(sun);
 
-// жижиг ориентир
 scene.add(new THREE.GridHelper(30, 30, 0x333333, 0x222222));
-
-/* =============================
-   Helpers
-============================= */
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const dragPlane = new THREE.Plane();
-const hit = new THREE.Vector3();
-const vA = new THREE.Vector3();
-const vB = new THREE.Vector3();
-
-function setMouse(e){
-  const r = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-  mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
-}
-function pick(obj, e){
-  setMouse(e);
-  raycaster.setFromCamera(mouse, camera);
-  return raycaster.intersectObject(obj, true).length > 0;
-}
-function fitCamera(obj){
-  const box = new THREE.Box3().setFromObject(obj);
-  const c = box.getCenter(new THREE.Vector3());
-  const s = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(s.x,s.y,s.z);
-
-  const fov = camera.fov * (Math.PI/180);
-  let dist = (maxDim/2)/Math.tan(fov/2);
-  dist *= 2.4;
-
-  camera.position.set(c.x + dist, c.y + dist*0.55, c.z + dist);
-  camera.lookAt(c);
-
-  camera.near = Math.max(0.01, dist/200);
-  camera.far  = dist*60;
-  camera.updateProjectionMatrix();
-
-  controls.target.copy(c);
-  controls.update();
-  return { maxDim };
-}
 
 /* =============================
    GLB state
@@ -146,8 +116,12 @@ const cableMat = new THREE.MeshStandardMaterial({
 // Plug дээр “утас гардаг” local цэг
 let plugCableLocal = new THREE.Vector3(0,0,-0.05);
 
+// Helpers
+const vA = new THREE.Vector3();
+const vB = new THREE.Vector3();
+
 /* =============================
-   Plug material state (idle/near/connected)
+   Material state: Plug
 ============================= */
 const plugMeshes = [];
 function cachePlugMaterials(){
@@ -192,8 +166,7 @@ function setPlugState(state){
 }
 
 /* =============================
-   RAZ material state (idle/connected)
-   ✅ Залгаад RAZ ногоон болгоно
+   Material state: RAZ (шар дөрвөлжин)
 ============================= */
 const razMeshes = [];
 function cacheRazMaterials(){
@@ -233,20 +206,27 @@ function setRAZState(state){
 }
 
 /* =============================
-   Positions & cable
+   Pose helpers
 ============================= */
+function lockRouterPose(){
+  if (!root) return;
+  root.rotation.set(0,0,0);
+  root.rotateX(lockRotX);
+  root.rotateY(lockRotY);
+  root.rotateZ(lockRotZ);
+}
+
 function getRazTargetWorld(out){
-  // ✅ боломжтой бол RazPort-ыг ашиглана (илүү зөв target)
   if (razPort) return razPort.getWorldPosition(out);
-  // fallback: RAZ object-ийн төв (заримдаа өндөр болж асуудал үүсгэдэг)
   if (raz) return raz.getWorldPosition(out);
-  // fallback
   return root.getWorldPosition(out);
 }
+
 function getPlugCableWorld(out){
   if (!plug) return out.set(0,0,0);
   return plug.localToWorld(out.copy(plugCableLocal));
 }
+
 function updateCable(){
   if (!root || !plug || !routerPort) return;
 
@@ -268,9 +248,6 @@ function updateCable(){
   }
 }
 
-/* =============================
-   Snap + Orientation
-============================= */
 function orientPlugTowardRaz(forceInstant=false){
   if (!plug || !root) return;
   const p = plug.getWorldPosition(vA);
@@ -285,42 +262,75 @@ function orientPlugTowardRaz(forceInstant=false){
   else plug.quaternion.slerp(q, 0.9);
 }
 
-function snapIfNear(){
-  // ✅ targetW-г бага зэрэг ДОШЛУУЛЖ “хэт дээш үсрэх”-ийг засна
+/* =============================
+   Magnet + Snap state
+============================= */
+let snapAnimating = false;
+let snapTargetLocal = new THREE.Vector3();
+
+function computeRanges(){
+  const s = root ? root.scale.x : 1;
+  return {
+    magnetRange: magnetRangeBase * s,
+    snapRange: snapRangeBase * s
+  };
+}
+
+function updateMagnet(){
+  if (!root || !plug) return;
+  if (plugGrabbed || rootGrabbed) return; // барьж байхад magnet хийхгүй
+
+  // targetW-г доошлуулна (хэт дээш snap засна)
   const targetW = getRazTargetWorld(vA).clone();
   targetW.y -= snapYOffset;
 
   const plugW = plug.getWorldPosition(vB);
   const d = targetW.distanceTo(plugW);
 
-  const snapDist = Math.max(0.12, cableRadius*35);
+  const { magnetRange, snapRange } = computeRanges();
 
-  if (d < snapDist){
-    connected = true;
+  if (!connected && d < magnetRange) {
+    // “магнит” таталт: plug.position-г local дээр нь зөөлөн татна
+    setPlugState("near");
 
-    const snapLocal = root.worldToLocal(targetW.clone());
-    plug.position.copy(snapLocal);
+    // plugW -> targetW чиглэл
+    const dir = targetW.clone().sub(plugW);
+    const step = dir.multiplyScalar(magnetStrength); // frame бүр зөөлөн ойртуулна
+    const newW = plugW.clone().add(step);
 
-    orientPlugTowardRaz(true);
+    const newLocal = root.worldToLocal(newW);
+    plug.position.copy(newLocal);
 
-    setPlugState("connected");   // plug ногоон
-    setRAZState("connected");    // ✅ RAZ ногоон
-  } else {
-    connected = false;
-    setPlugState("idle");
-    setRAZState("idle");
+    orientPlugTowardRaz(false);
+
+    if (d < snapRange) {
+      // snap эхлүүлнэ
+      snapAnimating = true;
+      snapTargetLocal = root.worldToLocal(targetW.clone());
+    }
+  }
+
+  if (snapAnimating) {
+    // LERP snap (илүү бодит мэдрэмж)
+    plug.position.lerp(snapTargetLocal, 0.35);
+    orientPlugTowardRaz(false);
+
+    if (plug.position.distanceTo(snapTargetLocal) < 0.01) {
+      // snap done
+      snapAnimating = false;
+      connected = true;
+      setPlugState("connected");
+      setRAZState("connected");
+      orientPlugTowardRaz(true);
+    }
   }
 }
 
-/* =============================
-   Router orientation lock
-============================= */
-function lockRouterPose(){
-  if (!root) return;
-  root.rotation.set(0,0,0);
-  root.rotateX(lockRotX);
-  root.rotateY(lockRotY);
-  root.rotateZ(lockRotZ);
+function disconnect(){
+  connected = false;
+  snapAnimating = false;
+  setPlugState("idle");
+  setRAZState("idle");
 }
 
 /* =============================
@@ -338,25 +348,21 @@ loader.load("./router1.glb", (gltf)=>{
 
   if (!plug) { alert('GLB дотор "Plug" алга'); return; }
   if (!routerPort) { alert('GLB дотор "RouterPort" алга'); return; }
-  if (!raz && !razPort) {
-    // RAZ олдохгүй байж болно, гэхдээ snap ажиллахын тулд дор хаяж RazPort эсвэл RAZ хэрэгтэй
-    console.warn('Анхаар: GLB дотор "RAZ" эсвэл "RazPort" олдсонгүй (snap target алдаа гарч магадгүй).');
-  }
 
   // center
   const box = new THREE.Box3().setFromObject(root);
   const center = box.getCenter(new THREE.Vector3());
   root.position.sub(center);
 
-  // scale
+  // scale to reasonable size
   const len = box.getSize(new THREE.Vector3()).length();
   const targetSize = 6;
   root.scale.setScalar(targetSize / len);
 
-  // lock orientation (router дандаа “зөв” байрлалтай)
+  // lock orientation
   lockRouterPose();
 
-  // camera fit for desktop preview
+  // camera fit (desktop preview only)
   const fit = fitCamera(root);
   cableRadius = Math.max(0.003, fit.maxDim * 0.006);
 
@@ -374,14 +380,36 @@ loader.load("./router1.glb", (gltf)=>{
   cacheRazMaterials();
   setRAZState("idle");
 
-  // ✅ “толгой дээр” биш: доош + урагш
+  // move down + forward
   root.position.add(rootOffset);
 
   orientPlugTowardRaz(true);
   updateCable();
 }, undefined, (e)=>console.error(e));
 
-// VR эхлэхэд дахин баталгаатай lock + position
+function fitCamera(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  const c = box.getCenter(new THREE.Vector3());
+  const s = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(s.x,s.y,s.z);
+
+  const fov = camera.fov * (Math.PI/180);
+  let dist = (maxDim/2)/Math.tan(fov/2);
+  dist *= 2.4;
+
+  camera.position.set(c.x + dist, c.y + dist*0.55, c.z + dist);
+  camera.lookAt(c);
+
+  camera.near = Math.max(0.01, dist/200);
+  camera.far  = dist*60;
+  camera.updateProjectionMatrix();
+
+  controls.target.copy(c);
+  controls.update();
+  return { maxDim };
+}
+
+// VR session start: enforce pose again
 renderer.xr.addEventListener("sessionstart", ()=>{
   if (!root) return;
   root.position.set(rootOffset.x, rootOffset.y, rootOffset.z);
@@ -389,20 +417,35 @@ renderer.xr.addEventListener("sessionstart", ()=>{
 });
 
 /* =============================
-   Desktop drag (VR биш үед)
+   Desktop drag (fallback)
 ============================= */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const dragPlane = new THREE.Plane();
+const hit = new THREE.Vector3();
 let dragging=false;
+
+function setMouse(e){
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+}
+
+function pick(obj, e){
+  setMouse(e);
+  raycaster.setFromCamera(mouse, camera);
+  return raycaster.intersectObject(obj, true).length > 0;
+}
 
 renderer.domElement.addEventListener("pointerdown", (e)=>{
   if (!root || !plug) return;
   if (!pick(plug, e)) return;
 
   dragging=true;
-  connected=false;
   controls.enabled=false;
+  disconnect();
 
   setPlugState("near");
-  setRAZState("idle");
 
   const plugPos = plug.getWorldPosition(vA);
   const normal = camera.getWorldDirection(vB).normalize();
@@ -422,83 +465,238 @@ renderer.domElement.addEventListener("pointermove", (e)=>{
   plug.position.copy(local);
 
   orientPlugTowardRaz(false);
-
-  const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
-  const nearDist = Math.max(0.18, cableRadius*45);
-  if (!connected) setPlugState(d < nearDist ? "near" : "idle");
 });
 
 renderer.domElement.addEventListener("pointerup", (e)=>{
-  if (!dragging || !root || !plug) return;
-
+  if (!dragging) return;
   dragging=false;
   controls.enabled=true;
-
-  snapIfNear();
-
   try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch{}
 });
 
-renderer.domElement.addEventListener("pointercancel", ()=>{ dragging=false; controls.enabled=true; setPlugState("idle"); });
-
 /* =============================
-   VR: Realistic grab (attach to controller)
+   VR Controllers (2 controllers)
 ============================= */
+const controller0 = renderer.xr.getController(0);
+const controller1 = renderer.xr.getController(1);
+scene.add(controller0);
+scene.add(controller1);
+
+// lasers
+function addLaser(ctrl){
+  const geom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0,0,0),
+    new THREE.Vector3(0,0,-1)
+  ]);
+  const laser = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffffff }));
+  laser.scale.z = 12;
+  ctrl.add(laser);
+}
+addLaser(controller0);
+addLaser(controller1);
+
 const xrRaycaster = new THREE.Raycaster();
 const tempMatrix = new THREE.Matrix4();
 
-const controller = renderer.xr.getController(0);
-scene.add(controller);
-
-// лазер
-const laserGeom = new THREE.BufferGeometry().setFromPoints([
-  new THREE.Vector3(0,0,0),
-  new THREE.Vector3(0,0,-1)
-]);
-const laser = new THREE.Line(laserGeom, new THREE.LineBasicMaterial({ color: 0xffffff }));
-laser.scale.z = 12;
-controller.add(laser);
-
-let grabbed = false;
-
-function controllerIntersections(){
-  tempMatrix.identity().extractRotation(controller.matrixWorld);
-  xrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+function raycastFromController(ctrl, object){
+  if (!object) return [];
+  tempMatrix.identity().extractRotation(ctrl.matrixWorld);
+  xrRaycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
   xrRaycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
-  return xrRaycaster.intersectObject(plug, true);
+  return xrRaycaster.intersectObject(object, true);
 }
 
-function startGrab(){
-  grabbed = true;
-  connected = false;
-  setRAZState("idle");      // ✅ өмнөх ногооныг арилгана
-  controller.attach(plug);  // ✅ бодит барих мэдрэмж
+/* =============================
+   VR Interaction State
+============================= */
+let plugGrabbed = false;
+let rootGrabbed = false;
+let plugGrabController = null;
+let rootGrabController = null;
+
+let scaling = false;
+let scaleStartDist = 0;
+let scaleStartValue = 1;
+
+function beginScaleIfBothGrips(){
+  if (!root) return;
+  if (isGripDown0 && isGripDown1 && !scaling && !plugGrabbed && !rootGrabbed){
+    scaling = true;
+    scaleStartDist = controller0.getWorldPosition(vA).distanceTo(controller1.getWorldPosition(vB));
+    scaleStartValue = root.scale.x;
+  }
+}
+function endScaleIfNeeded(){
+  if (!scaling) return;
+  if (!(isGripDown0 && isGripDown1)) scaling = false;
+}
+
+// We'll track grip pressed via squeeze events
+let isGripDown0 = false;
+let isGripDown1 = false;
+
+/* =============================
+   Plug grab (Trigger)
+============================= */
+function startPlugGrab(ctrl){
+  if (!root || !plug) return;
+  if (plugGrabbed || rootGrabbed) return;
+
+  disconnect(); // snap state reset
+  plugGrabbed = true;
+  plugGrabController = ctrl;
+
+  // attach plug to controller => 1:1 follow
+  ctrl.attach(plug);
   setPlugState("near");
 }
 
-function endGrab(){
-  grabbed = false;
-  scene.attach(plug);
+function endPlugGrab(){
+  if (!plugGrabbed) return;
+  plugGrabbed = false;
 
-  snapIfNear();
-  orientPlugTowardRaz(false);
+  // detach back to scene
+  scene.attach(plug);
+  plugGrabController = null;
+
+  // after release, magnet will handle snap automatically
+  setPlugState("idle");
 }
 
-controller.addEventListener("selectstart", ()=>{
-  if (!root || !plug) return;
-  if (grabbed) return;
+/* =============================
+   Root grab (Grip / Squeeze)
+============================= */
+function startRootGrab(ctrl){
+  if (!root) return;
+  if (rootGrabbed || plugGrabbed) return;
 
-  const hits = controllerIntersections();
-  if (!hits.length) return;
+  rootGrabbed = true;
+  rootGrabController = ctrl;
 
-  startGrab();
+  // Attach whole root to controller for realistic moving
+  ctrl.attach(root);
+}
+
+function endRootGrab(){
+  if (!rootGrabbed) return;
+  rootGrabbed = false;
+
+  // Detach back to scene
+  scene.attach(root);
+  rootGrabController = null;
+
+  // Re-lock orientation AFTER detach (attach can inherit controller rotation)
+  lockRouterPose();
+}
+
+/* =============================
+   Controller events
+============================= */
+controller0.addEventListener("selectstart", ()=>{
+  if (!plug) return;
+  const hits = raycastFromController(controller0, plug);
+  if (hits.length) startPlugGrab(controller0);
+});
+controller0.addEventListener("selectend", ()=>{ endPlugGrab(); });
+
+controller1.addEventListener("selectstart", ()=>{
+  if (!plug) return;
+  const hits = raycastFromController(controller1, plug);
+  if (hits.length) startPlugGrab(controller1);
+});
+controller1.addEventListener("selectend", ()=>{ endPlugGrab(); });
+
+// Grip / Squeeze for moving root
+controller0.addEventListener("squeezestart", ()=>{
+  isGripDown0 = true;
+  beginScaleIfBothGrips();
+  // If not scaling, allow root grab
+  if (!scaling) startRootGrab(controller0);
+});
+controller0.addEventListener("squeezeend", ()=>{
+  isGripDown0 = false;
+  endRootGrab();
+  endScaleIfNeeded();
 });
 
-controller.addEventListener("selectend", ()=>{
-  if (!root || !plug) return;
-  if (!grabbed) return;
-  endGrab();
+controller1.addEventListener("squeezestart", ()=>{
+  isGripDown1 = true;
+  beginScaleIfBothGrips();
+  if (!scaling) startRootGrab(controller1);
 });
+controller1.addEventListener("squeezeend", ()=>{
+  isGripDown1 = false;
+  endRootGrab();
+  endScaleIfNeeded();
+});
+
+/* =============================
+   Joystick movement (poll Gamepad axes)
+   - Works while VR session is running
+============================= */
+function applyJoystickMove(){
+  if (!root) return;
+  if (rootGrabbed || scaling) return; // барьж/scale хийж байхад stick-ээр давхар хөдөлгөхгүй
+
+  const session = renderer.xr.getSession?.();
+  if (!session) return;
+
+  // We'll read first input source that has a gamepad (usually controller0)
+  for (const src of session.inputSources){
+    if (!src.gamepad) continue;
+
+    const axes = src.gamepad.axes;
+    // Quest: axes[2], axes[3] or axes[0], axes[1] depending on mapping.
+    // We'll be defensive: pick first 2 as x,y if exists, else 2,3.
+    let ax = 0, ay = 0;
+
+    if (axes.length >= 2) { ax = axes[0]; ay = axes[1]; }
+    if (Math.abs(ax) < 0.01 && Math.abs(ay) < 0.01 && axes.length >= 4) { ax = axes[2]; ay = axes[3]; }
+
+    // deadzone
+    const dz = 0.15;
+    if (Math.abs(ax) < dz) ax = 0;
+    if (Math.abs(ay) < dz) ay = 0;
+
+    // Move in "head-forward" space for natural push/pull
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    camDir.y = 0;
+    camDir.normalize();
+
+    const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0)).normalize();
+
+    // ay: up/down stick => push/pull (forward/back)
+    // ax: left/right stick => strafe
+    root.position.add(camDir.clone().multiplyScalar(-ay * moveSpeed));
+    root.position.add(right.clone().multiplyScalar(ax * moveSpeed));
+
+    // We only apply from one gamepad to avoid double applying
+    break;
+  }
+}
+
+/* =============================
+   Pinch scale update
+============================= */
+function updateScale(){
+  if (!scaling || !root) return;
+
+  const dist = controller0.getWorldPosition(vA).distanceTo(controller1.getWorldPosition(vB));
+  if (scaleStartDist < 1e-6) return;
+
+  const factor = dist / scaleStartDist;
+  const newScale = THREE.MathUtils.clamp(scaleStartValue * factor, minScale, maxScale);
+
+  // scale around current position (simple)
+  root.scale.setScalar(newScale);
+
+  // After scaling, keep router upright
+  lockRouterPose();
+
+  // Cable radius updates visually (optional)
+  cableRadius = Math.max(0.003, 0.02 * root.scale.x);
+}
 
 /* =============================
    Resize + Loop
@@ -509,24 +707,27 @@ addEventListener("resize", ()=>{
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// кабель update-ийг хөнгөрүүлэх
+// cable update reduce cost
 let frame = 0;
 
 renderer.setAnimationLoop(()=>{
   if (!renderer.xr.isPresenting) controls.update();
 
-  const moving = dragging || grabbed;
-  if (moving) {
-    updateCable();
-  } else {
-    frame++;
-    if (frame % 15 === 0) updateCable();
-  }
+  // joystick move
+  applyJoystickMove();
 
-  if (grabbed && root && plug){
-    const d = getRazTargetWorld(vA).distanceTo(plug.getWorldPosition(vB));
-    const nearDist = Math.max(0.18, cableRadius*45);
-    setPlugState(d < nearDist ? "near" : "idle");
+  // pinch scale
+  updateScale();
+
+  // magnet snap
+  updateMagnet();
+
+  // cable update
+  const moving = dragging || plugGrabbed || rootGrabbed || scaling || snapAnimating;
+  if (moving) updateCable();
+  else {
+    frame++;
+    if (frame % 12 === 0) updateCable();
   }
 
   renderer.render(scene, camera);
