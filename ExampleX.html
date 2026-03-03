@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Star Topology Demo (VR)</title>
+
+  <!-- Import map: "three" module resolve -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; background:#111; }
+    #hud {
+      position: fixed; left: 12px; top: 12px;
+      color: #eaeaea; font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: rgba(0,0,0,.45); padding: 10px 12px; border-radius: 10px;
+      max-width: 360px;
+    }
+    #tooltip {
+      position: fixed; left: 12px; bottom: 12px;
+      color: #fff; font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: rgba(0,0,0,.55); padding: 10px 12px; border-radius: 10px;
+      display: none; white-space: pre;
+      border: 1px solid rgba(255,255,255,.15);
+      max-width: 520px;
+    }
+    #hint { margin-top: 6px; opacity: .85; font-size: 12px; }
+    .k { opacity:.75 }
+  </style>
+</head>
+
+<body>
+  <div id="hud">
+    <div><b>3D Star Topology Demo (VR)</b></div>
+    <div class="k">• Desktop: click → мэдээлэл</div>
+    <div class="k">• VR: controller-оор чиглүүлээд trigger → мэдээлэл / Switch FAIL ON/OFF</div>
+    <div class="k">• Mouse: drag=эргүүлэх, wheel=zoom, right-drag=пан (VR биш үед)</div>
+    <div id="hint">Status: <span id="status">OK</span></div>
+  </div>
+  <div id="tooltip"></div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
+
+    const statusEl = document.getElementById("status");
+    const tooltip = document.getElementById("tooltip");
+
+    /* -----------------------------
+       Mini OrbitControls (VR биш үед)
+    --------------------------------*/
+    class MiniOrbitControls {
+      constructor(camera, domElement) {
+        this.camera = camera;
+        this.domElement = domElement;
+
+        this.target = new THREE.Vector3(0,0,0);
+        this.enableDamping = true;
+        this.dampingFactor = 0.08;
+
+        this.rotateSpeed = 0.9;
+        this.zoomSpeed = 1.0;
+        this.panSpeed = 0.8;
+
+        this.minDistance = 2;
+        this.maxDistance = 60;
+
+        this._spherical = new THREE.Spherical();
+        this._sphericalDelta = new THREE.Spherical(0,0,0);
+        this._panOffset = new THREE.Vector3();
+        this._zoomScale = 1;
+
+        this._state = "none";
+        this._pointerStart = new THREE.Vector2();
+        this._pointerEnd = new THREE.Vector2();
+        this._pointerDelta = new THREE.Vector2();
+
+        this._init();
+      }
+      _init() {
+        this.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+        this.domElement.addEventListener('pointerdown', this._onPointerDown);
+        this.domElement.addEventListener('pointermove', this._onPointerMove);
+        this.domElement.addEventListener('pointerup', this._onPointerUp);
+        this.domElement.addEventListener('wheel', this._onWheel, { passive:false });
+      }
+      _onPointerDown = (e) => {
+        this.domElement.setPointerCapture(e.pointerId);
+        this._pointerStart.set(e.clientX, e.clientY);
+        this._state = (e.button === 2) ? "pan" : "rotate";
+      };
+      _onPointerMove = (e) => {
+        if (this._state === "none") return;
+        this._pointerEnd.set(e.clientX, e.clientY);
+        this._pointerDelta.subVectors(this._pointerEnd, this._pointerStart);
+
+        const element = this.domElement;
+        if (this._state === "rotate") {
+          const rotX = (2 * Math.PI * this._pointerDelta.x / element.clientHeight) * this.rotateSpeed;
+          const rotY = (2 * Math.PI * this._pointerDelta.y / element.clientHeight) * this.rotateSpeed;
+          this._sphericalDelta.theta -= rotX;
+          this._sphericalDelta.phi   -= rotY;
+        } else {
+          this._pan(this._pointerDelta.x, this._pointerDelta.y);
+        }
+        this._pointerStart.copy(this._pointerEnd);
+      };
+      _onPointerUp = (e) => {
+        this._state = "none";
+        try { this.domElement.releasePointerCapture(e.pointerId); } catch {}
+      };
+      _onWheel = (e) => {
+        e.preventDefault();
+        const delta = (e.deltaY < 0) ? 0.95 : 1.05;
+        this._zoomScale *= Math.pow(delta, this.zoomSpeed);
+      };
+      _pan(deltaX, deltaY) {
+        const camera = this.camera;
+        const element = this.domElement;
+
+        const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+        const targetDistance = offset.length();
+
+        const panX = (2 * deltaX * targetDistance / element.clientHeight) * this.panSpeed;
+        const panY = (2 * deltaY * targetDistance / element.clientHeight) * this.panSpeed;
+
+        const pan = new THREE.Vector3();
+        pan.copy(camera.up).setLength(panY);
+        pan.add(new THREE.Vector3().copy(camera.up).cross(camera.getWorldDirection(new THREE.Vector3())).setLength(panX));
+        this._panOffset.add(pan);
+      }
+      update() {
+        const camera = this.camera;
+        const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+        this._spherical.setFromVector3(offset);
+
+        this._spherical.theta += this._sphericalDelta.theta;
+        this._spherical.phi   += this._sphericalDelta.phi;
+
+        const EPS = 0.000001;
+        this._spherical.phi = Math.max(EPS, Math.min(Math.PI - EPS, this._spherical.phi));
+
+        this._spherical.radius *= this._zoomScale;
+        this._spherical.radius = Math.max(this.minDistance, Math.min(this.maxDistance, this._spherical.radius));
+
+        this.target.add(this._panOffset);
+
+        offset.setFromSpherical(this._spherical);
+        camera.position.copy(this.target).add(offset);
+        camera.lookAt(this.target);
+
+        if (this.enableDamping) {
+          this._sphericalDelta.theta *= (1 - this.dampingFactor);
+          this._sphericalDelta.phi   *= (1 - this.dampingFactor);
+          this._panOffset.multiplyScalar(1 - this.dampingFactor);
+          this._zoomScale = 1 + (this._zoomScale - 1) * (1 - this.dampingFactor);
+        } else {
+          this._sphericalDelta.set(0,0,0);
+          this._panOffset.set(0,0,0);
+          this._zoomScale = 1;
+        }
+      }
+    }
+
+    /* -----------------------------
+       Scene setup + WebXR
+    --------------------------------*/
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 14); // VR-friendly height
+
+    const renderer = new THREE.WebGLRenderer({ antialias:true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    document.body.appendChild(VRButton.createButton(renderer));
+
+    const controls = new MiniOrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const key = new THREE.DirectionalLight(0xffffff, 0.9);
+    key.position.set(10, 12, 10);
+    scene.add(key);
+
+    scene.add(new THREE.AxesHelper(6));
+    const grid = new THREE.GridHelper(30, 30, 0x333333, 0x222222);
+    grid.position.z = -2;
+    scene.add(grid);
+
+    /* -----------------------------
+       Build Star Topology
+    --------------------------------*/
+    const group = new THREE.Group();
+    scene.add(group);
+
+    const switchMatOK = new THREE.MeshPhongMaterial({ color: 0xff8c00 });
+    const switchMatFail = new THREE.MeshPhongMaterial({ color: 0xff3333 });
+
+    const switchMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 1.2, 1.0),
+      switchMatOK
+    );
+    switchMesh.name = "SWITCH";
+    switchMesh.userData = {
+      type: "switch",
+      label: "Core Switch",
+      status: "OK",
+      note: "Star topology: single point of failure."
+    };
+    group.add(switchMesh);
+
+    const pcCount = 6;
+    const radius = 6.0;
+    const pcGeo = new THREE.SphereGeometry(0.55, 32, 32);
+
+    const pcs = [];
+    const cables = [];
+
+    function makeMAC(i){
+      const hex = (n) => n.toString(16).padStart(2,'0').toUpperCase();
+      return `02:00:00:${hex(i*17%256)}:${hex(i*31%256)}:${hex(i*53%256)}`;
+    }
+    function makeIP(i){ return `192.168.0.${10+i}`; }
+
+    for (let i=0; i<pcCount; i++){
+      const angle = (i/pcCount) * Math.PI * 2;
+      const pcMat = new THREE.MeshPhongMaterial({ color: 0x00a3ff });
+      const pc = new THREE.Mesh(pcGeo, pcMat);
+
+      pc.position.set(Math.cos(angle)*radius, 1.6 + Math.sin(angle)*radius * 0.35, 0); // бага зэрэг өндөрлөв
+      pc.name = `PC${i+1}`;
+      pc.userData = {
+        type: "pc",
+        label: `PC-${i+1}`,
+        ip: makeIP(i),
+        mac: makeMAC(i),
+        status: "Active"
+      };
+      group.add(pc);
+      pcs.push(pc);
+
+      const pts = [pc.position.clone(), switchMesh.position.clone()];
+      const geom = new THREE.BufferGeometry().setFromPoints(pts);
+      const line = new THREE.Line(
+        geom,
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 1.0 })
+      );
+      line.name = `CABLE${i+1}`;
+      line.userData = { type:"cable", from: pc.name, to: "SWITCH" };
+      group.add(line);
+      cables.push(line);
+    }
+
+    const packet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    );
+    packet.visible = true;
+    group.add(packet);
+
+    let packetT = 0;
+    let packetRunning = true;
+
+    let failure = false;
+    function setFailure(on){
+      failure = on;
+      switchMesh.material = on ? switchMatFail : switchMatOK;
+      switchMesh.userData.status = on ? "FAIL" : "OK";
+      statusEl.textContent = on ? "FAILURE (switch down)" : "OK";
+
+      for (const line of cables) line.material.opacity = on ? 0.2 : 1.0;
+      for (const pc of pcs){
+        pc.material.emissive = new THREE.Color(on ? 0x110000 : 0x000000);
+        pc.userData.status = on ? "Disconnected" : "Active";
+      }
+      packetRunning = !on;
+      packet.visible = !on;
+    }
+
+    /* -----------------------------
+       Tooltip
+    --------------------------------*/
+    function showTooltip(text){
+      tooltip.textContent = text;
+      tooltip.style.display = "block";
+    }
+    function hideTooltip(){ tooltip.style.display = "none"; }
+    addEventListener("keydown", (e) => { if (e.key === "Escape") hideTooltip(); });
+
+    /* -----------------------------
+       Raycast: Desktop mouse + VR controller
+    --------------------------------*/
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function handleHit(obj){
+      if (!obj) { hideTooltip(); return; }
+
+      if (obj.userData.type === "pc") {
+        const d = obj.userData;
+        showTooltip(
+`[${d.label}]
+IP: ${d.ip}
+MAC: ${d.mac}
+Status: ${d.status}`
+        );
+      } else if (obj.userData.type === "switch") {
+        setFailure(!failure);
+        const d = obj.userData;
+        showTooltip(
+`[${d.label}]
+Status: ${d.status}
+Tip: Switch уналаа → бүх PC сална (Star topology)`
+        );
+      }
+    }
+
+    // Desktop click
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects([switchMesh, ...pcs], false);
+      handleHit(hits[0]?.object);
+    });
+
+    // VR controller
+    const controller = renderer.xr.getController(0);
+    scene.add(controller);
+
+    // Visible laser
+    const laserGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0,0),
+      new THREE.Vector3(0,0,-1)
+    ]);
+    const laser = new THREE.Line(laserGeom, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    laser.name = "laser";
+    laser.scale.z = 12;
+    controller.add(laser);
+
+    const tempMatrix = new THREE.Matrix4();
+
+    controller.addEventListener("selectstart", () => {
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+      raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      raycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
+
+      const hits = raycaster.intersectObjects([switchMesh, ...pcs], false);
+      handleHit(hits[0]?.object);
+    });
+
+    /* -----------------------------
+       Resize
+    --------------------------------*/
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth/innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    /* -----------------------------
+       Animation loop (WebXR)
+    --------------------------------*/
+    renderer.setAnimationLoop(() => {
+      if (packetRunning) {
+        const start = pcs[0].position;
+        const end = switchMesh.position;
+        const alpha = (Math.sin(packetT) + 1) / 2;
+        packet.position.lerpVectors(start, end, alpha);
+        packetT += 0.03;
+      }
+
+      // VR үед OrbitControls хэрэггүй (XR camera pose ажиллана)
+      if (!renderer.xr.isPresenting) controls.update();
+
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+</html>
