@@ -176,9 +176,10 @@ const TABLE_TOP_Y = 0.78;
 
 const tableGroup = new THREE.Group();
 scene.add(tableGroup);
-
+tableGroup.position.z = -1.2; // ---- ширээг хойшлуулна
+tableGroup.position.x = -1.2;
 const tableTop = new THREE.Mesh(
-  new THREE.BoxGeometry(3.8, 0.08, 1.8),
+  new THREE.BoxGeometry(4, 0.08,12),
   new THREE.MeshStandardMaterial({
     color: 0x6b7280,
     roughness: 0.85,
@@ -193,18 +194,18 @@ function createTableLeg(x, z) {
     new THREE.BoxGeometry(0.08, 0.78, 0.08),
     new THREE.MeshStandardMaterial({
       color: 0x4b5563,
-      roughness: 0.9,
-      metalness: 0.08
+      roughness: 0.85,
+      metalness: 0.1
     })
   );
   leg.position.set(x, TABLE_TOP_Y / 2, z);
   tableGroup.add(leg);
 }
 
-createTableLeg(-1.75, -0.80);
-createTableLeg( 1.75, -0.80);
-createTableLeg(-1.75,  0.80);
-createTableLeg( 1.75,  0.80);
+createTableLeg(-3, -2);
+createTableLeg( 3, -2);
+createTableLeg(-3,  2);
+createTableLeg( 3,  2);
 
     // ==================================================
     // HELPERS
@@ -648,7 +649,8 @@ modelRoot.scale.set(0.22, 0.22, 0.22);
 // MODEL PLACE ON TABLE
 // ==================================================
 const modelBoxBefore = new THREE.Box3().setFromObject(modelRoot);
-modelRoot.position.y += TABLE_TOP_Y - modelBoxBefore.min.y + 0.04;    
+modelRoot.position.y += TABLE_TOP_Y - modelBoxBefore.min.y + 0.8;   
+modelRoot.position.z -= 1.3; 
 
         PC1 = modelRoot.getObjectByName("PC1");
         PC2 = modelRoot.getObjectByName("PC2");
