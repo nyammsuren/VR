@@ -2,21 +2,8 @@
 <html lang="mn">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VR Router + Plug (PlugPort→RazPort Snap + RAZ Green)</title>
-
-  <style>
-    body{margin:0; overflow:hidden; background:#111;}
-    #hud{
-      position:fixed; left:12px; top:12px; z-index:10;
-      color:#eee; font:14px/1.35 system-ui,Segoe UI,Roboto,Arial;
-      background:rgba(0,0,0,.45); padding:10px 12px; border:1px solid rgba(255,255,255,.12);
-      border-radius:12px; max-width:920px;
-    }
-    #hud b{display:block;margin-bottom:4px}
-    #hud small{opacity:.85}
-    code{background:rgba(255,255,255,.08); padding:2px 6px; border-radius:8px}
-  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VR Network Cable Lab</title>
 
   <script type="importmap">
   {
@@ -26,586 +13,716 @@
     }
   }
   </script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #0f1115;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    #hud {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      z-index: 10;
+      color: #f2f4f8;
+      background: rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      padding: 12px 14px;
+      max-width: 420px;
+      line-height: 1.4;
+      font-size: 14px;
+    }
+    #hud b { font-size: 15px; }
+    #hud .muted { opacity: .8; font-size: 12px; }
+    #hud .ok { color: #73ff9f; }
+    #hud .bad { color: #ff7575; }
+    #hud .sel { color: #ffd166; }
+    #message {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      z-index: 10;
+      color: white;
+      background: rgba(0,0,0,.52);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      padding: 10px 12px;
+      max-width: 460px;
+      min-height: 20px;
+      white-space: pre-line;
+      font-size: 14px;
+    }
+  </style>
 </head>
-
 <body>
-<div id="hud">
-  <b>VR Router + Plug (All fixed)</b>
-  <small>
-    • <b>Trigger</b>: Plug барина/суллана<br/>
-    • <b>Grip</b>: Router (бүх сүлжээ) барина/суллана<br/>
-    • <b>2 controller Grip</b>: Pinch scale (томруулах/жижигрүүлэх)<br/>
-    • <b>Joystick</b>: router-г нааш/цааш, хажуу тийш хөдөлгөнө<br/>
-    • Snap: <b>PlugPort → RazPort</b>. Snap болсон үед <b>RAZ ногоон</b>.
-  </small>
-</div>
+  <div id="hud">
+    <div><b>VR Network Cable Lab</b></div>
+    <div>Даалгавар: <span class="sel">PC1 → SW1, PC2 → SW2, SW1 → Router, SW2 → Router</span></div>
+    <div>Кабель сонгоод дараа нь <b>2 порт</b> сонгож холбоно.</div>
+    <div class="muted">Straight cable: PC ↔ Switch, Switch ↔ Router</div>
+    <div class="muted">Crossover cable: энэ prototype-д зориуд буруу гэж үзнэ</div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:8px 0;">
+    <div>Сонгосон кабель: <span id="selectedCable">байхгүй</span></div>
+    <div>Сонгосон порт 1: <span id="selectedPort">байхгүй</span></div>
+    <div>Зөв холболт: <span id="score" class="ok">0 / 4</span></div>
+    <div>Төлөв: <span id="status">Хүлээж байна</span></div>
+    <div class="muted">Desktop: click</div>
+    <div class="muted">VR: controller чиглүүлээд trigger/select</div>
+  </div>
 
-<script type="module">
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { VRButton } from "three/addons/webxr/VRButton.js";
+  <div id="message">Эхлээд Straight cable сонго.</div>
 
-/* =============================
-   CONFIG (эндээс тааруулна)
-============================= */
-const rootOffset = new THREE.Vector3(0.0, -0.6, -2.6); // толгой дээр байвал y-г - болго
-const lockRotX = -Math.PI/2; // router доош харвал +Math.PI/2 болгож солиод турш
-const lockRotY = 0;
-const lockRotZ = 0;
+  <script type="module">
+    import * as THREE from "three";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
 
-const moveSpeed = 0.04;          // joystick move
-const minScale = 0.35, maxScale = 4.0;
+    const selectedCableEl = document.getElementById("selectedCable");
+    const selectedPortEl = document.getElementById("selectedPort");
+    const scoreEl = document.getElementById("score");
+    const statusEl = document.getElementById("status");
+    const messageEl = document.getElementById("message");
 
-// Magnet/snap ranges (scale-тэй хамт өснө)
-const magnetRangeBase = 0.55;
-const snapRangeBase   = 0.16;
-const magnetStrength  = 0.20;
+    function setMessage(msg) {
+      messageEl.textContent = msg;
+    }
 
-/* =============================
-   Scene setup
-============================= */
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x111111);
+    /* -----------------------------
+       Basic scene
+    ----------------------------- */
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x10141c);
 
-const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 5000);
-camera.position.set(0, 1.6, 10);
+    const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(0, 1.7, 7.5);
 
-const renderer = new THREE.WebGLRenderer({ antialias:true });
-renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.xr.enabled = true;
-document.body.appendChild(renderer.domElement);
-document.body.appendChild(VRButton.createButton(renderer));
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(VRButton.createButton(renderer));
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambient);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-sun.position.set(6, 10, 6);
-scene.add(sun);
-scene.add(new THREE.GridHelper(30, 30, 0x333333, 0x222222));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.95);
+    dir.position.set(6, 10, 8);
+    scene.add(dir);
 
-/* =============================
-   GLB state
-============================= */
-let root=null, plug=null, plugPort=null, routerPort=null, razPort=null, raz=null;
-let plugHomeParent=null; // plug-ийг буцааж attachment хийх parent (ихэнхдээ root)
-let connected=false;
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(20, 20),
+      new THREE.MeshPhongMaterial({ color: 0x1a1f29, side: THREE.DoubleSide })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
 
-// Cable
-let cableMesh=null;
-let cableRadius=0.01;
-const cableMat = new THREE.MeshStandardMaterial({
-  color: 0xff6a00,
-  emissive: 0xff2200,
-  emissiveIntensity: 0.25,
-  roughness: 0.6,
-  metalness: 0.15
-});
+    const grid = new THREE.GridHelper(20, 20, 0x3d4b66, 0x263142);
+    scene.add(grid);
 
-// Helpers vectors
-const vA = new THREE.Vector3();
-const vB = new THREE.Vector3();
-const vC = new THREE.Vector3();
-const vD = new THREE.Vector3();
+    /* -----------------------------
+       Mini orbit controls
+    ----------------------------- */
+    class MiniOrbitControls {
+      constructor(camera, domElement) {
+        this.camera = camera;
+        this.domElement = domElement;
+        this.target = new THREE.Vector3(0, 1, 0);
 
-/* =============================
-   Material state: Plug
-============================= */
-const plugMeshes = [];
-function cachePlugMaterials(){
-  plugMeshes.length = 0;
-  plug.traverse(o=>{
-    if (o.isMesh && o.material){
-      plugMeshes.push(o);
-      if (!o.userData.__plugOrigCached){
-        const m = o.material;
-        o.userData.__plugOrigCached = true;
-        o.userData.__plugOrigMat = m;
-        o.userData.__plugOrigColor = m.color ? m.color.clone() : null;
-        o.userData.__plugOrigEmissive = m.emissive ? m.emissive.clone() : null;
-        o.userData.__plugOrigEmissiveIntensity = (typeof m.emissiveIntensity === "number") ? m.emissiveIntensity : 0;
+        this._state = "none";
+        this._start = new THREE.Vector2();
+        this._delta = new THREE.Vector2();
+
+        this.spherical = new THREE.Spherical();
+        this.sphericalDelta = new THREE.Spherical(0, 0, 0);
+        this.zoomScale = 1;
+        this.panOffset = new THREE.Vector3();
+
+        this.rotateSpeed = 1.0;
+        this.zoomSpeed = 1.0;
+        this.panSpeed = 0.9;
+        this.damping = 0.10;
+
+        this.minDistance = 3.5;
+        this.maxDistance = 18;
+
+        this.init();
+      }
+      init() {
+        this.domElement.addEventListener("contextmenu", e => e.preventDefault());
+        this.domElement.addEventListener("pointerdown", e => {
+          this.domElement.setPointerCapture(e.pointerId);
+          this._start.set(e.clientX, e.clientY);
+          this._state = e.button === 2 ? "pan" : "rotate";
+        });
+        this.domElement.addEventListener("pointermove", e => {
+          if (this._state === "none") return;
+          this._delta.set(e.clientX - this._start.x, e.clientY - this._start.y);
+          if (this._state === "rotate") {
+            this.sphericalDelta.theta -= 2 * Math.PI * this._delta.x / this.domElement.clientHeight * this.rotateSpeed;
+            this.sphericalDelta.phi   -= 2 * Math.PI * this._delta.y / this.domElement.clientHeight * this.rotateSpeed;
+          } else {
+            this.pan(this._delta.x, this._delta.y);
+          }
+          this._start.set(e.clientX, e.clientY);
+        });
+        this.domElement.addEventListener("pointerup", e => {
+          this._state = "none";
+          try { this.domElement.releasePointerCapture(e.pointerId); } catch {}
+        });
+        this.domElement.addEventListener("wheel", e => {
+          e.preventDefault();
+          const delta = e.deltaY < 0 ? 0.92 : 1.08;
+          this.zoomScale *= Math.pow(delta, this.zoomSpeed);
+        }, { passive: false });
+      }
+      pan(dx, dy) {
+        const offset = new THREE.Vector3().copy(this.camera.position).sub(this.target);
+        const dist = offset.length();
+        const panX = (2 * dx * dist / this.domElement.clientHeight) * this.panSpeed;
+        const panY = (2 * dy * dist / this.domElement.clientHeight) * this.panSpeed;
+
+        const dir = this.camera.getWorldDirection(new THREE.Vector3());
+        const right = new THREE.Vector3().crossVectors(dir, this.camera.up).normalize();
+        const up = new THREE.Vector3().copy(this.camera.up).normalize();
+
+        this.panOffset.addScaledVector(right, panX);
+        this.panOffset.addScaledVector(up, panY);
+      }
+      update() {
+        const offset = new THREE.Vector3().copy(this.camera.position).sub(this.target);
+        this.spherical.setFromVector3(offset);
+
+        this.spherical.theta += this.sphericalDelta.theta;
+        this.spherical.phi += this.sphericalDelta.phi;
+        this.spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, this.spherical.phi));
+        this.spherical.radius *= this.zoomScale;
+        this.spherical.radius = Math.max(this.minDistance, Math.min(this.maxDistance, this.spherical.radius));
+
+        this.target.add(this.panOffset);
+        offset.setFromSpherical(this.spherical);
+        this.camera.position.copy(this.target).add(offset);
+        this.camera.lookAt(this.target);
+
+        this.sphericalDelta.theta *= (1 - this.damping);
+        this.sphericalDelta.phi *= (1 - this.damping);
+        this.panOffset.multiplyScalar(1 - this.damping);
+        this.zoomScale = 1 + (this.zoomScale - 1) * (1 - this.damping);
       }
     }
-  });
-}
-function setPlugState(state){
-  for (const o of plugMeshes){
-    const m = o.material;
-    if (!m) continue;
 
-    if (state === "idle"){
-      if (o.userData.__plugOrigColor && m.color) m.color.copy(o.userData.__plugOrigColor);
-      if (o.userData.__plugOrigEmissive && m.emissive) m.emissive.copy(o.userData.__plugOrigEmissive);
-      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = o.userData.__plugOrigEmissiveIntensity ?? 0;
-      continue;
-    }
-    if (state === "near"){
-      if (m.color) m.color.set(0xffcc00);
-      if (m.emissive) m.emissive.set(0xff9900);
-      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.55;
-      continue;
-    }
-    if (state === "connected"){
-      if (m.color) m.color.set(0x00ff66);
-      if (m.emissive) m.emissive.set(0x00ff66);
-      if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.75;
-      continue;
-    }
-  }
-}
+    const controls = new MiniOrbitControls(camera, renderer.domElement);
 
-/* =============================
-   Material state: RAZ (100% харагдах ногоон override)
-============================= */
-const razMeshes = [];
-function cacheRazMaterials(){
-  razMeshes.length = 0;
-  if (!raz) return;
-  raz.traverse(o=>{
-    if (!o.isMesh) return;
-    razMeshes.push(o);
-    if (!o.userData.__razOrigCached){
-      o.userData.__razOrigCached = true;
-      o.userData.__razOrigMat = o.material;
-    }
-  });
-}
-function setRAZState(state){
-  if (!razMeshes.length) return;
+    /* -----------------------------
+       Helpers
+    ----------------------------- */
+    function makeLabelSprite(text, color = "#ffffff", bg = "rgba(0,0,0,0.6)") {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 128;
+      const ctx = canvas.getContext("2d");
 
-  if (state === "connected"){
-    for (const m of razMeshes){
-      m.material = new THREE.MeshStandardMaterial({
-        color: 0x00ff66,
-        emissive: 0x00ff66,
-        emissiveIntensity: 0.9,
-        roughness: 0.35,
-        metalness: 0.05
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+
+      ctx.fillStyle = color;
+      ctx.font = "bold 42px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(1.8, 0.45, 1);
+      return sprite;
+    }
+
+    function makePort(name, deviceType, deviceName, pos) {
+      const g = new THREE.Mesh(
+        new THREE.SphereGeometry(0.08, 20, 20),
+        new THREE.MeshPhongMaterial({ color: 0xcccccc, emissive: 0x000000 })
+      );
+      g.position.copy(pos);
+      g.name = name;
+      g.userData = {
+        kind: "port",
+        deviceType,
+        deviceName,
+        connected: false
+      };
+      return g;
+    }
+
+    function setPortState(port, state) {
+      if (state === "idle") {
+        port.material.color.set(0xcccccc);
+        port.material.emissive.set(0x000000);
+      } else if (state === "selected") {
+        port.material.color.set(0xffcc33);
+        port.material.emissive.set(0x554400);
+      } else if (state === "valid") {
+        port.material.color.set(0x66ff88);
+        port.material.emissive.set(0x114422);
+      } else if (state === "invalid") {
+        port.material.color.set(0xff6666);
+        port.material.emissive.set(0x441111);
+      }
+    }
+
+    /* -----------------------------
+       Devices
+    ----------------------------- */
+    const root = new THREE.Group();
+    scene.add(root);
+
+    const interactables = [];
+    const ports = [];
+    const devices = {};
+
+    function createPC(name, x, z) {
+      const group = new THREE.Group();
+      group.position.set(x, 0, z);
+      root.add(group);
+
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, 0.08, 0.5),
+        new THREE.MeshPhongMaterial({ color: 0x2a2f3a })
+      );
+      base.position.set(0, 0.04, 0);
+      group.add(base);
+
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.45, 0.05),
+        new THREE.MeshPhongMaterial({ color: 0x3b82f6 })
+      );
+      screen.position.set(0, 0.35, -0.08);
+      group.add(screen);
+
+      const stand = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.18, 0.06),
+        new THREE.MeshPhongMaterial({ color: 0x777777 })
+      );
+      stand.position.set(0, 0.18, 0.02);
+      group.add(stand);
+
+      const label = makeLabelSprite(name);
+      label.position.set(0, 0.82, 0);
+      group.add(label);
+
+      const port = makePort(`${name}_PORT`, "pc", name, new THREE.Vector3(0.38, 0.12, 0));
+      group.add(port);
+
+      devices[name] = group;
+      ports.push(port);
+      interactables.push(port);
+      return group;
+    }
+
+    function createSwitch(name, x, z) {
+      const group = new THREE.Group();
+      group.position.set(x, 0, z);
+      root.add(group);
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.1, 0.25, 0.6),
+        new THREE.MeshPhongMaterial({ color: 0xff8c00 })
+      );
+      body.position.set(0, 0.125, 0);
+      group.add(body);
+
+      const label = makeLabelSprite(name);
+      label.position.set(0, 0.7, 0);
+      group.add(label);
+
+      const portA = makePort(`${name}_PORT_A`, "switch", name, new THREE.Vector3(-0.35, 0.17, 0.32));
+      const portB = makePort(`${name}_PORT_B`, "switch", name, new THREE.Vector3(0.35, 0.17, 0.32));
+      const portC = makePort(`${name}_PORT_C`, "switch", name, new THREE.Vector3(0.0, 0.17, -0.32));
+      group.add(portA, portB, portC);
+
+      devices[name] = group;
+      ports.push(portA, portB, portC);
+      interactables.push(portA, portB, portC);
+      return group;
+    }
+
+    function createRouter(name, x, z) {
+      const group = new THREE.Group();
+      group.position.set(x, 0, z);
+      root.add(group);
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.4, 0.25, 0.8),
+        new THREE.MeshPhongMaterial({ color: 0x22c55e })
+      );
+      body.position.set(0, 0.125, 0);
+      group.add(body);
+
+      const ant1 = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 0.55),
+        new THREE.MeshPhongMaterial({ color: 0x111111 })
+      );
+      ant1.position.set(-0.45, 0.5, -0.25);
+      group.add(ant1);
+
+      const ant2 = ant1.clone();
+      ant2.position.set(0.45, 0.5, -0.25);
+      group.add(ant2);
+
+      const label = makeLabelSprite(name);
+      label.position.set(0, 0.95, 0);
+      group.add(label);
+
+      const portA = makePort(`${name}_PORT_A`, "router", name, new THREE.Vector3(-0.35, 0.17, 0.42));
+      const portB = makePort(`${name}_PORT_B`, "router", name, new THREE.Vector3(0.35, 0.17, 0.42));
+      group.add(portA, portB);
+
+      devices[name] = group;
+      ports.push(portA, portB);
+      interactables.push(portA, portB);
+      return group;
+    }
+
+    createPC("PC1", -3.2, 2.0);
+    createPC("PC2",  3.2, 2.0);
+    createSwitch("SW1", -1.6, 0.2);
+    createSwitch("SW2",  1.6, 0.2);
+    createRouter("Router", 0, -2.2);
+
+    /* -----------------------------
+       Cable selectors
+    ----------------------------- */
+    const cableShelf = new THREE.Group();
+    cableShelf.position.set(-5.2, 0, -1.0);
+    scene.add(cableShelf);
+
+    const shelf = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.2, 2.0),
+      new THREE.MeshPhongMaterial({ color: 0x3a3f48 })
+    );
+    shelf.position.set(0, 0.1, 0);
+    cableShelf.add(shelf);
+
+    function createCableSelector(name, type, color, z) {
+      const group = new THREE.Group();
+      group.position.set(0, 0.45, z);
+      cableShelf.add(group);
+
+      const mesh = new THREE.Mesh(
+        new THREE.TorusGeometry(0.18, 0.05, 12, 28),
+        new THREE.MeshPhongMaterial({ color })
+      );
+      mesh.rotation.x = Math.PI / 2;
+      mesh.userData = { kind: "cableSelector", cableType: type, label: name };
+      group.add(mesh);
+
+      const label = makeLabelSprite(name);
+      label.position.set(0.8, 0.15, 0);
+      label.scale.set(1.4, 0.35, 1);
+      group.add(label);
+
+      interactables.push(mesh);
+      return mesh;
+    }
+
+    createCableSelector("Straight cable", "straight", 0x4ade80, -0.45);
+    createCableSelector("Crossover cable", "crossover", 0xf87171, 0.45);
+
+    /* -----------------------------
+       State
+    ----------------------------- */
+    let selectedCableType = null;
+    let firstPort = null;
+    let selectedHighlight = null;
+
+    const connections = [];
+    const packetFlows = [];
+
+    const REQUIRED_LINKS = new Set([
+      "PC1|SW1",
+      "PC2|SW2",
+      "SW1|Router",
+      "SW2|Router"
+    ]);
+
+    function normalizePair(a, b) {
+      return [a, b].sort().join("|");
+    }
+
+    function updateUI() {
+      selectedCableEl.textContent = selectedCableType ?? "байхгүй";
+      selectedPortEl.textContent = firstPort ? `${firstPort.userData.deviceName} / ${firstPort.name}` : "байхгүй";
+
+      const okCount = connections.filter(c => c.valid && REQUIRED_LINKS.has(normalizePair(c.aDevice, c.bDevice))).length;
+      scoreEl.textContent = `${okCount} / 4`;
+
+      if (okCount === 4) {
+        statusEl.textContent = "Амжилттай";
+        setMessage("Бүх зөв холболт үүслээ. Одоо packet/data дамжиж байна.");
+      }
+    }
+
+    function resetPortSelection() {
+      if (firstPort) setPortState(firstPort, firstPort.userData.connected ? "valid" : "idle");
+      firstPort = null;
+      updateUI();
+    }
+
+    function isSameConnectionAlreadyExists(portA, portB) {
+      return connections.some(c =>
+        (c.portA === portA && c.portB === portB) ||
+        (c.portA === portB && c.portB === portA)
+      );
+    }
+
+    function isValidConnection(portA, portB, cableType) {
+      const a = portA.userData.deviceType;
+      const b = portB.userData.deviceType;
+
+      if (portA === portB) return false;
+      if (portA.userData.deviceName === portB.userData.deviceName) return false;
+      if (portA.userData.connected || portB.userData.connected) return false;
+      if (cableType !== "straight") return false;
+
+      const validPair =
+        (a === "pc" && b === "switch") ||
+        (a === "switch" && b === "pc") ||
+        (a === "switch" && b === "router") ||
+        (a === "router" && b === "switch");
+
+      return validPair;
+    }
+
+    function createCableCurve(start, end, color) {
+      const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+      mid.y += 0.55;
+
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      const points = curve.getPoints(32);
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({ color });
+      const line = new THREE.Line(geometry, material);
+
+      return { line, curve };
+    }
+
+    function addPacketFlow(curve) {
+      const packet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 14, 14),
+        new THREE.MeshBasicMaterial({ color: 0x00e5ff })
+      );
+      scene.add(packet);
+
+      packetFlows.push({
+        mesh: packet,
+        curve,
+        t: Math.random()
       });
     }
-  } else {
-    for (const m of razMeshes){
-      if (m.userData.__razOrigMat) m.material = m.userData.__razOrigMat;
+
+    function createConnection(portA, portB, cableType, valid) {
+      const worldA = portA.getWorldPosition(new THREE.Vector3());
+      const worldB = portB.getWorldPosition(new THREE.Vector3());
+
+      const color = valid ? 0x4ade80 : 0xff3b3b;
+      const { line, curve } = createCableCurve(worldA, worldB, color);
+      scene.add(line);
+
+      const conn = {
+        portA,
+        portB,
+        aDevice: portA.userData.deviceName,
+        bDevice: portB.userData.deviceName,
+        cableType,
+        valid,
+        line,
+        curve
+      };
+      connections.push(conn);
+
+      if (valid) {
+        portA.userData.connected = true;
+        portB.userData.connected = true;
+        setPortState(portA, "valid");
+        setPortState(portB, "valid");
+        addPacketFlow(curve);
+
+        statusEl.textContent = "Зөв холболт";
+        setMessage(`Зөв холбоо:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nPacket/data дамжиж байна.`);
+      } else {
+        setPortState(portA, "invalid");
+        setPortState(portB, "invalid");
+        statusEl.textContent = "Буруу холболт";
+        setMessage(`Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nМэдээлэл дамжихгүй.`);
+        setTimeout(() => {
+          if (!portA.userData.connected) setPortState(portA, "idle");
+          if (!portB.userData.connected) setPortState(portB, "idle");
+        }, 900);
+      }
+
+      updateUI();
     }
-  }
-}
 
-/* =============================
-   Pose helpers
-============================= */
-function lockRouterPose(){
-  if (!root) return;
-  root.rotation.set(0,0,0);
-  root.rotateX(lockRotX);
-  root.rotateY(lockRotY);
-  root.rotateZ(lockRotZ);
-}
+    function handleSelection(obj) {
+      if (!obj) return;
 
-function getRazPortWorld(out){
-  if (!razPort) return out.set(0,0,0);
-  return razPort.getWorldPosition(out);
-}
-function getPlugPortWorld(out){
-  if (plugPort) return plugPort.getWorldPosition(out);
-  // fallback: plug өөрөө
-  return plug.getWorldPosition(out);
-}
+      if (obj.userData.kind === "cableSelector") {
+        selectedCableType = obj.userData.cableType;
+        statusEl.textContent = "Кабель сонгосон";
+        setMessage(`${obj.userData.label} сонголоо.\nОдоо 2 порт сонго.`);
+        updateUI();
+        return;
+      }
 
-function updateCable(){
-  if (!root || !plug || !routerPort) return;
+      if (obj.userData.kind === "port") {
+        if (!selectedCableType) {
+          setMessage("Эхлээд кабель сонго.");
+          statusEl.textContent = "Кабель сонгоогүй";
+          return;
+        }
 
-  const start = routerPort.getWorldPosition(vA);
-  const end = getPlugPortWorld(vB); // кабель PlugPort руу явж байгаа мэт
+        if (!firstPort) {
+          firstPort = obj;
+          setPortState(firstPort, "selected");
+          statusEl.textContent = "Эхний порт сонгосон";
+          setMessage(`Эхний порт:\n${obj.userData.deviceName}\nОдоо 2 дахь порт сонго.`);
+          updateUI();
+          return;
+        }
 
-  const mid = start.clone().lerp(end, 0.5);
-  mid.y -= 0.25;
+        if (obj === firstPort) {
+          setMessage("Өөр порт сонго.");
+          return;
+        }
 
-  const curve = new THREE.CatmullRomCurve3([start.clone(), mid, end.clone()]);
-  const tube = new THREE.TubeGeometry(curve, 70, cableRadius, 10, false);
+        if (isSameConnectionAlreadyExists(firstPort, obj)) {
+          setMessage("Энэ холбоо аль хэдийн үүссэн.");
+          resetPortSelection();
+          return;
+        }
 
-  if (!cableMesh){
-    cableMesh = new THREE.Mesh(tube, cableMat);
-    scene.add(cableMesh);
-  } else {
-    cableMesh.geometry.dispose();
-    cableMesh.geometry = tube;
-  }
-}
-
-/* =============================
-   Snap logic: PlugPort -> RazPort
-============================= */
-function computeRanges(){
-  const s = root ? root.scale.x : 1;
-  return {
-    magnetRange: magnetRangeBase * s,
-    snapRange: snapRangeBase * s
-  };
-}
-
-function disconnect(){
-  connected = false;
-  setPlugState("idle");
-  setRAZState("idle");
-}
-
-function snapPlugToRazPort(){
-  if (!root || !plug) return;
-
-  // PlugPort world -> RazPort world delta
-  const targetW = getRazPortWorld(vA);
-  const ppW = getPlugPortWorld(vB);
-
-  const delta = targetW.clone().sub(ppW);
-
-  // plug-ийн world pos дээр delta нэмээд, түүнийгээ root-ийн local руу хөрвүүлж тавина.
-  const plugW = plug.getWorldPosition(vC);
-  const newPlugW = plugW.clone().add(delta);
-
-  // plug Home parent руугаа буцаасан байх шаардлагатай (controller дээр байвал snap буруу болно)
-  if (plug.parent !== plugHomeParent) plugHomeParent.attach(plug);
-
-  const local = plugHomeParent.worldToLocal(newPlugW.clone());
-  plug.position.copy(local);
-
-  connected = true;
-  setPlugState("connected");
-  setRAZState("connected");
-}
-
-function applyMagnet(){
-  if (!root || !plug || !razPort) return;
-  if (plugGrabbed || rootGrabbed || scaling) return;
-
-  const targetW = getRazPortWorld(vA);
-  const ppW = getPlugPortWorld(vB);
-  const d = targetW.distanceTo(ppW);
-
-  const { magnetRange, snapRange } = computeRanges();
-
-  if (!connected && d < magnetRange){
-    setPlugState("near");
-
-    // PlugPort-ыг target руу ойртуулж татна
-    const dir = targetW.clone().sub(ppW);
-    const step = dir.multiplyScalar(magnetStrength);
-
-    // Plug world position дээр step-г нэмнэ (PlugPort биш Plug-ийг хөдөлгөнө)
-    const plugW = plug.getWorldPosition(vC);
-    const newPlugW = plugW.clone().add(step);
-
-    if (plug.parent !== plugHomeParent) plugHomeParent.attach(plug);
-
-    const local = plugHomeParent.worldToLocal(newPlugW.clone());
-    plug.position.copy(local);
-
-    if (d < snapRange){
-      snapPlugToRazPort();
+        const valid = isValidConnection(firstPort, obj, selectedCableType);
+        createConnection(firstPort, obj, selectedCableType, valid);
+        resetPortSelection();
+      }
     }
-  }
-}
 
-/* =============================
-   Load GLB
-============================= */
-const loader = new GLTFLoader();
-loader.load("./router1.glb", (gltf)=>{
-  root = gltf.scene;
-  scene.add(root);
+    /* -----------------------------
+       Raycasting: desktop + VR
+    ----------------------------- */
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
 
-  // ✅ яг Blender дээрх нэрүүдээр нь авна
-  plug      = root.getObjectByName("Plug");
-  plugPort  = root.getObjectByName("PlugPort");   // ✅ энэ чухал
-  routerPort= root.getObjectByName("RouterPort");
-  razPort   = root.getObjectByName("RazPort");    // ✅ залгах target
-  raz       = root.getObjectByName("RAZ");        // ✅ өнгө солих объект
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(interactables, false);
+      if (hits.length > 0) handleSelection(hits[0].object);
+    });
 
-  if (!plug)       { alert('GLB дотор "Plug" алга'); return; }
-  if (!routerPort) { alert('GLB дотор "RouterPort" алга'); return; }
-  if (!razPort)    { alert('GLB дотор "RazPort" алга'); return; }
-  if (!plugPort)   { console.warn('Анхаар: "PlugPort" олдсонгүй. (fallback: Plug center ашиглана)'); }
-  if (!raz)        { console.warn('Анхаар: "RAZ" олдсонгүй. (RAZ ногоон ажиллахгүй)'); }
+    const controller = renderer.xr.getController(0);
+    scene.add(controller);
 
-  plugHomeParent = plug.parent || root;
+    const laserGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1)
+    ]);
+    const laser = new THREE.Line(
+      laserGeom,
+      new THREE.LineBasicMaterial({ color: 0xffffff })
+    );
+    laser.scale.z = 10;
+    controller.add(laser);
 
-  // center
-  const box = new THREE.Box3().setFromObject(root);
-  const center = box.getCenter(new THREE.Vector3());
-  root.position.sub(center);
+    const tempMatrix = new THREE.Matrix4();
 
-  // scale
-  const len = box.getSize(new THREE.Vector3()).length();
-  const targetSize = 6;
-  root.scale.setScalar(targetSize / len);
+    controller.addEventListener("selectstart", () => {
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+      raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-  // lock orientation
-  lockRouterPose();
+      const hits = raycaster.intersectObjects(interactables, false);
+      if (hits.length > 0) handleSelection(hits[0].object);
+    });
 
-  // place in front + down
-  root.position.add(rootOffset);
+    /* -----------------------------
+       Hover highlight in VR/desktop
+    ----------------------------- */
+    function clearHover() {
+      if (selectedHighlight && !selectedHighlight.userData.connected && selectedHighlight !== firstPort) {
+        setPortState(selectedHighlight, "idle");
+      }
+      selectedHighlight = null;
+    }
 
-  // hide helper empties if needed
-  routerPort.visible = false;
-  razPort.visible = false;
-  if (plugPort) plugPort.visible = false;
+    function updateHoverFromRay(raycasterObj) {
+      const hits = raycasterObj.intersectObjects(interactables, false);
+      const hit = hits[0]?.object;
 
-  cachePlugMaterials();
-  setPlugState("idle");
+      if (selectedHighlight && selectedHighlight !== hit && !selectedHighlight.userData.connected && selectedHighlight !== firstPort) {
+        setPortState(selectedHighlight, "idle");
+      }
 
-  cacheRazMaterials();
-  setRAZState("idle");
+      if (hit && hit.userData.kind === "port" && hit !== firstPort && !hit.userData.connected) {
+        selectedHighlight = hit;
+        hit.material.emissive.set(0x222222);
+      } else {
+        selectedHighlight = null;
+      }
+    }
 
-  // cable thickness by size
-  cableRadius = Math.max(0.003, (targetSize / 300));
+    renderer.domElement.addEventListener("pointermove", (e) => {
+      if (renderer.xr.isPresenting) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      updateHoverFromRay(raycaster);
+    });
 
-  updateCable();
-}, undefined, (e)=>console.error(e));
+    /* -----------------------------
+       Resize
+    ----------------------------- */
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
 
-// VR session start: enforce pose
-renderer.xr.addEventListener("sessionstart", ()=>{
-  if (!root) return;
-  root.position.set(rootOffset.x, rootOffset.y, rootOffset.z);
-  lockRouterPose();
-});
+    /* -----------------------------
+       Animation
+    ----------------------------- */
+    const tmpRaycaster = new THREE.Raycaster();
 
-/* =============================
-   Desktop fallback: drag plug (optional)
-============================= */
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const dragPlane = new THREE.Plane();
-const hit = new THREE.Vector3();
-let dragging=false;
+    renderer.setAnimationLoop(() => {
+      if (!renderer.xr.isPresenting) {
+        controls.update();
+      } else {
+        tempMatrix.identity().extractRotation(controller.matrixWorld);
+        tmpRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        tmpRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+        updateHoverFromRay(tmpRaycaster);
+      }
 
-function setMouse(e){
-  const r = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-  mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
-}
-function pick(obj, e){
-  setMouse(e);
-  raycaster.setFromCamera(mouse, camera);
-  return raycaster.intersectObject(obj, true).length > 0;
-}
-renderer.domElement.addEventListener("pointerdown", (e)=>{
-  if (!root || !plug) return;
-  if (!pick(plug, e)) return;
-  dragging = true;
-  controls.enabled = false;
-  disconnect();
-  dragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(vA).normalize(), plug.getWorldPosition(vB));
-  renderer.domElement.setPointerCapture(e.pointerId);
-});
-renderer.domElement.addEventListener("pointermove", (e)=>{
-  if (!dragging || !root || !plug) return;
-  setMouse(e);
-  raycaster.setFromCamera(mouse, camera);
-  if (!raycaster.ray.intersectPlane(dragPlane, hit)) return;
-  if (plug.parent !== plugHomeParent) plugHomeParent.attach(plug);
-  plug.position.copy(plugHomeParent.worldToLocal(hit.clone()));
-});
-renderer.domElement.addEventListener("pointerup", (e)=>{
-  if (!dragging) return;
-  dragging=false;
-  controls.enabled=true;
-  try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch{}
-});
+      for (const flow of packetFlows) {
+        flow.t += 0.008;
+        if (flow.t > 1) flow.t = 0;
+        flow.mesh.position.copy(flow.curve.getPoint(flow.t));
+      }
 
-/* =============================
-   VR controllers + interactions (ALL)
-============================= */
-const controller0 = renderer.xr.getController(0);
-const controller1 = renderer.xr.getController(1);
-scene.add(controller0);
-scene.add(controller1);
+      renderer.render(scene, camera);
+    });
 
-function addLaser(ctrl){
-  const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1)]);
-  const laser = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffffff }));
-  laser.scale.z = 12;
-  ctrl.add(laser);
-}
-addLaser(controller0);
-addLaser(controller1);
-
-const xrRaycaster = new THREE.Raycaster();
-const tempMatrix = new THREE.Matrix4();
-
-function raycastFromController(ctrl, object){
-  if (!object) return [];
-  tempMatrix.identity().extractRotation(ctrl.matrixWorld);
-  xrRaycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
-  xrRaycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
-  return xrRaycaster.intersectObject(object, true);
-}
-
-// State
-let plugGrabbed=false;
-let rootGrabbed=false;
-let scaling=false;
-let scaleStartDist=0;
-let scaleStartValue=1;
-let isGripDown0=false;
-let isGripDown1=false;
-
-function beginScaleIfBothGrips(){
-  if (!root) return;
-  if (isGripDown0 && isGripDown1 && !scaling && !plugGrabbed && !rootGrabbed){
-    scaling = true;
-    scaleStartDist = controller0.getWorldPosition(vA).distanceTo(controller1.getWorldPosition(vB));
-    scaleStartValue = root.scale.x;
-  }
-}
-function endScaleIfNeeded(){
-  if (scaling && !(isGripDown0 && isGripDown1)) scaling = false;
-}
-
-function startPlugGrab(ctrl){
-  if (!root || !plug) return;
-  if (plugGrabbed || rootGrabbed || scaling) return;
-
-  disconnect();
-  plugGrabbed = true;
-  ctrl.attach(plug);
-  setPlugState("near");
-}
-
-function endPlugGrab(){
-  if (!plugGrabbed) return;
-  plugGrabbed = false;
-
-  // ✅ буцааж home parent руу
-  plugHomeParent.attach(plug);
-
-  // сулласны дараа magnet/snapping ажиллана
-  setPlugState("idle");
-}
-
-function startRootGrab(ctrl){
-  if (!root) return;
-  if (rootGrabbed || plugGrabbed || scaling) return;
-
-  rootGrabbed = true;
-  ctrl.attach(root);
-}
-
-function endRootGrab(){
-  if (!rootGrabbed) return;
-  rootGrabbed = false;
-
-  scene.attach(root);
-  lockRouterPose(); // ✅ controller rotation-оос салгаад дахин lock
-}
-
-// Trigger -> plug grab
-controller0.addEventListener("selectstart", ()=>{
-  if (!plug) return;
-  const hits = raycastFromController(controller0, plug);
-  if (hits.length) startPlugGrab(controller0);
-});
-controller0.addEventListener("selectend", ()=> endPlugGrab());
-
-controller1.addEventListener("selectstart", ()=>{
-  if (!plug) return;
-  const hits = raycastFromController(controller1, plug);
-  if (hits.length) startPlugGrab(controller1);
-});
-controller1.addEventListener("selectend", ()=> endPlugGrab());
-
-// Grip -> root grab OR pinch scale
-controller0.addEventListener("squeezestart", ()=>{
-  isGripDown0 = true;
-  beginScaleIfBothGrips();
-  if (!scaling) startRootGrab(controller0);
-});
-controller0.addEventListener("squeezeend", ()=>{
-  isGripDown0 = false;
-  endRootGrab();
-  endScaleIfNeeded();
-});
-
-controller1.addEventListener("squeezestart", ()=>{
-  isGripDown1 = true;
-  beginScaleIfBothGrips();
-  if (!scaling) startRootGrab(controller1);
-});
-controller1.addEventListener("squeezeend", ()=>{
-  isGripDown1 = false;
-  endRootGrab();
-  endScaleIfNeeded();
-});
-
-function updateScale(){
-  if (!scaling || !root) return;
-  const dist = controller0.getWorldPosition(vA).distanceTo(controller1.getWorldPosition(vB));
-  if (scaleStartDist < 1e-6) return;
-  const factor = dist / scaleStartDist;
-  const newScale = THREE.MathUtils.clamp(scaleStartValue * factor, minScale, maxScale);
-  root.scale.setScalar(newScale);
-  lockRouterPose();
-}
-
-function applyJoystickMove(){
-  if (!root) return;
-  if (rootGrabbed || scaling) return;
-
-  const session = renderer.xr.getSession?.();
-  if (!session) return;
-
-  for (const src of session.inputSources){
-    if (!src.gamepad) continue;
-    const axes = src.gamepad.axes;
-
-    let ax = 0, ay = 0;
-    if (axes.length >= 2){ ax = axes[0]; ay = axes[1]; }
-    if (Math.abs(ax) < 0.01 && Math.abs(ay) < 0.01 && axes.length >= 4){ ax = axes[2]; ay = axes[3]; }
-
-    const dz = 0.15;
-    if (Math.abs(ax) < dz) ax = 0;
-    if (Math.abs(ay) < dz) ay = 0;
-
-    const camDir = new THREE.Vector3();
-    camera.getWorldDirection(camDir);
-    camDir.y = 0; camDir.normalize();
-    const right = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0,1,0)).normalize();
-
-    root.position.add(camDir.clone().multiplyScalar(-ay * moveSpeed));
-    root.position.add(right.clone().multiplyScalar(ax * moveSpeed));
-    break;
-  }
-}
-
-/* =============================
-   Resize + Loop
-============================= */
-addEventListener("resize", ()=>{
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-let frame = 0;
-
-renderer.setAnimationLoop(()=>{
-  if (!renderer.xr.isPresenting) controls.update();
-
-  applyJoystickMove();
-  updateScale();
-
-  // ✅ Plug барьж байгаагүй үед: magnet + snap (PlugPort->RazPort)
-  applyMagnet();
-
-  // cable update
-  const moving = dragging || plugGrabbed || rootGrabbed || scaling || (!connected);
-  if (moving) updateCable();
-  else { frame++; if (frame % 12 === 0) updateCable(); }
-
-  renderer.render(scene, camera);
-});
-</script>
+    updateUI();
+  </script>
 </body>
 </html>
