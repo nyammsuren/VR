@@ -601,7 +601,7 @@
         scene.add(modelRoot);
 
         // Моделийн хэмжээг багасгана
-        modelRoot.scale.set(0.60, 0.60, 0.60);
+        modelRoot.scale.set(0.20, 0.20, 0.20);
 
         placeModelOnFloor(modelRoot);
 
@@ -632,7 +632,7 @@
         const pc2PortWorld = new THREE.Vector3(
           box2.max.x - 0.18,
           box2.min.y + 0.50,
-          box2.min.z + 0.12
+          box2.min.z - 0.10
         );
 
         PC1_PORT = createCodePort("PC1_Port", "PC1", pc1PortWorld);
