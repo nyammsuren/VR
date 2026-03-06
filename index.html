@@ -42,6 +42,7 @@
     #hud .muted { opacity: .82; font-size: 12px; }
     #hud .sel { color: #ffd166; }
     #hud .ok { color: #73ff9f; }
+    #hud .bad { color: #ff8c8c; }
 
     #message {
       position: fixed;
@@ -53,7 +54,7 @@
       border: 1px solid rgba(255,255,255,.12);
       border-radius: 12px;
       padding: 10px 12px;
-      max-width: 520px;
+      max-width: 540px;
       min-height: 20px;
       white-space: pre-line;
       font-size: 14px;
@@ -78,7 +79,7 @@
 <body>
   <div id="hud">
     <div><b>VR PC ↔ PC Cable Lab</b></div>
-    <div>Даалгавар: <span class="sel">2 компьютерийн портыг холбоно</span></div>
+    <div>Даалгавар: <span class="sel">2 компьютерийн улаан портыг холбоно</span></div>
     <div>1. Кабель сонго</div>
     <div>2. Эхний порт сонго</div>
     <div>3. Хоёр дахь порт сонго</div>
@@ -102,6 +103,9 @@
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { VRButton } from "three/addons/webxr/VRButton.js";
 
+    // ==================================================
+    // DOM
+    // ==================================================
     const selectedCableEl = document.getElementById("selectedCable");
     const selectedPortEl = document.getElementById("selectedPort");
     const scoreEl = document.getElementById("score");
@@ -113,11 +117,19 @@
       messageEl.textContent = msg;
     }
 
+    // ==================================================
+    // SCENE
+    // ==================================================
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0b1220);
 
-    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.01, 100);
-    camera.position.set(0, 1.6, 3.5);
+    const camera = new THREE.PerspectiveCamera(
+      65,
+      window.innerWidth / window.innerHeight,
+      0.01,
+      100
+    );
+    camera.position.set(0, 1.6, 3.8);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -158,6 +170,9 @@
     grid.position.y = 0.001;
     scene.add(grid);
 
+    // ==================================================
+    // HELPERS
+    // ==================================================
     function makeLabelSprite(text, color = "#ffffff", bg = "rgba(0,0,0,0.7)") {
       const canvas = document.createElement("canvas");
       canvas.width = 512;
@@ -206,7 +221,7 @@
       const maxDim = Math.max(size.x, size.y, size.z);
       const fitHeightDistance = maxDim / (2 * Math.tan((Math.PI * camera.fov) / 360));
       const fitWidthDistance = fitHeightDistance / camera.aspect;
-      const distance = 1.45 * Math.max(fitHeightDistance, fitWidthDistance);
+      const distance = 1.55 * Math.max(fitHeightDistance, fitWidthDistance);
 
       const direction = new THREE.Vector3(1, 0.55, 1).normalize();
 
@@ -241,8 +256,8 @@
       if (!port || !port.material) return;
 
       if (state === "idle") {
-        port.material.color.set(0xbfc7d5);
-        port.material.emissive.set(0x000000);
+        port.material.color.set(0xff2d2d);
+        port.material.emissive.set(0x550000);
       } else if (state === "selected") {
         port.material.color.set(0xffcc33);
         port.material.emissive.set(0x554400);
@@ -253,22 +268,23 @@
         port.material.color.set(0xff6666);
         port.material.emissive.set(0x441111);
       } else if (state === "hover") {
-        port.material.color.set(0xe5e7eb);
-        port.material.emissive.set(0x222222);
+        port.material.color.set(0xff8888);
+        port.material.emissive.set(0x772222);
       }
     }
 
-    function createCodePort(name, deviceName, localPos) {
+    function createCodePort(name, deviceName, worldPos) {
       const port = new THREE.Mesh(
-        new THREE.SphereGeometry(0.035, 20, 20),
+        new THREE.SphereGeometry(0.25, 20, 20),
         new THREE.MeshPhongMaterial({
-          color: 0xbfc7d5,
-          emissive: 0x000000
+          color: 0xff2d2d,
+          emissive: 0x550000
         })
       );
 
       port.name = name;
-      port.position.copy(localPos);
+      port.position.copy(worldPos);
+
       port.userData = {
         kind: "port",
         deviceType: "pc",
@@ -276,6 +292,7 @@
         connected: false
       };
 
+      scene.add(port);
       return port;
     }
 
@@ -337,6 +354,9 @@
       });
     }
 
+    // ==================================================
+    // STATE
+    // ==================================================
     const interactables = [];
     const ports = [];
     const connections = [];
@@ -353,6 +373,9 @@
     let selectedHighlight = null;
     let blinkingInvalid = null;
 
+    // ==================================================
+    // CABLE SELECTOR OBJECTS
+    // ==================================================
     const cableShelf = new THREE.Group();
     cableShelf.position.set(-1.9, 0, -0.25);
     scene.add(cableShelf);
@@ -367,6 +390,9 @@
     createCableSelector(cableShelf, "Straight cable", "straight", 0x4ade80, -0.30);
     createCableSelector(cableShelf, "Crossover cable", "crossover", 0xf97316, 0.30);
 
+    // ==================================================
+    // UI UPDATE
+    // ==================================================
     function updateUI() {
       selectedCableEl.textContent = selectedCableType ?? "байхгүй";
       selectedPortEl.textContent = firstPort
@@ -389,6 +415,9 @@
       updateUI();
     }
 
+    // ==================================================
+    // CONNECTION LOGIC
+    // ==================================================
     function isSameConnectionAlreadyExists(portA, portB) {
       return connections.some(c =>
         (c.portA === portA && c.portB === portB) ||
@@ -401,6 +430,7 @@
       if (portA.userData.deviceName === portB.userData.deviceName) return false;
       if (portA.userData.connected || portB.userData.connected) return false;
 
+      // PC ↔ PC үед зөв кабель = crossover
       return cableType === "crossover";
     }
 
@@ -552,10 +582,13 @@
       updateUI();
     }
 
+    // ==================================================
+    // MODEL LOAD
+    // ==================================================
     const loader = new GLTFLoader();
 
     loader.load(
-      "./pc_network1.glb",
+      "./pc_network.glb",
       (gltf) => {
         modelRoot = gltf.scene;
 
@@ -582,13 +615,28 @@
           return;
         }
 
-        // Кодын аргаар портууд нэмнэ
-        // Хэрэв байрлал бага зэрэг зөрвөл эдгээр утгуудыг л өөрчилнө
-        PC1_PORT = createCodePort("PC1_Port", "PC1", new THREE.Vector3(0.30, 0.16, 0.00));
-        PC2_PORT = createCodePort("PC2_Port", "PC2", new THREE.Vector3(0.30, 0.16, 0.00));
+        // ---------- PC1 world box ----------
+        const box1 = new THREE.Box3().setFromObject(PC1);
 
-        PC1.add(PC1_PORT);
-        PC2.add(PC2_PORT);
+        // ---------- PC2 world box ----------
+        const box2 = new THREE.Box3().setFromObject(PC2);
+
+        // ---------- Кодын аргаар улаан портууд нэмнэ ----------
+        // monitor-ийн баруун доод тал орчимд тавьж байна
+        const pc1PortWorld = new THREE.Vector3(
+          box1.max.x - 0.12,
+          box1.min.y + 0.24,
+          box1.min.z + 0.12
+        );
+
+        const pc2PortWorld = new THREE.Vector3(
+          box2.max.x - 0.12,
+          box2.min.y + 0.24,
+          box2.min.z + 0.12
+        );
+
+        PC1_PORT = createCodePort("PC1_Port", "PC1", pc1PortWorld);
+        PC2_PORT = createCodePort("PC2_Port", "PC2", pc2PortWorld);
 
         ports.push(PC1_PORT, PC2_PORT);
         interactables.push(PC1_PORT, PC2_PORT);
@@ -599,7 +647,7 @@
         frameObject(modelRoot);
 
         statusEl.textContent = "Бэлэн";
-        setMessage("Model ачааллаа.\nКодын портууд нэмэгдлээ.\nЭхлээд кабель сонго, дараа нь 2 порт сонго.");
+        setMessage("Model ачааллаа.\nУлаан портууд кодоор нэмэгдлээ.\nЭхлээд кабель сонго, дараа нь 2 порт сонго.");
         updateUI();
       },
       undefined,
@@ -610,6 +658,9 @@
       }
     );
 
+    // ==================================================
+    // DESKTOP RAYCAST
+    // ==================================================
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
@@ -660,6 +711,9 @@
       updateHoverFromRay(raycaster);
     });
 
+    // ==================================================
+    // VR CONTROLLER
+    // ==================================================
     const controller = renderer.xr.getController(0);
     scene.add(controller);
 
@@ -689,6 +743,9 @@
       }
     });
 
+    // ==================================================
+    // RESIZE
+    // ==================================================
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -697,6 +754,9 @@
 
     resetBtn.addEventListener("click", resetLab);
 
+    // ==================================================
+    // ANIMATION LOOP
+    // ==================================================
     renderer.setAnimationLoop(() => {
       if (!renderer.xr.isPresenting) {
         controls.update();
