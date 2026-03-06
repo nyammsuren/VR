@@ -169,6 +169,42 @@
     const grid = new THREE.GridHelper(20, 20, 0x2f5f9f, 0x1a3152);
     grid.position.y = 0.001;
     scene.add(grid);
+// ==================================================
+// TABLE
+// ==================================================
+const TABLE_TOP_Y = 0.78;
+
+const tableGroup = new THREE.Group();
+scene.add(tableGroup);
+
+const tableTop = new THREE.Mesh(
+  new THREE.BoxGeometry(3.8, 0.08, 1.8),
+  new THREE.MeshStandardMaterial({
+    color: 0x6b7280,
+    roughness: 0.85,
+    metalness: 0.1
+  })
+);
+tableTop.position.set(0, TABLE_TOP_Y, 0);
+tableGroup.add(tableTop);
+
+function createTableLeg(x, z) {
+  const leg = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.78, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0x4b5563,
+      roughness: 0.9,
+      metalness: 0.08
+    })
+  );
+  leg.position.set(x, TABLE_TOP_Y / 2, z);
+  tableGroup.add(leg);
+}
+
+createTableLeg(-1.75, -0.80);
+createTableLeg( 1.75, -0.80);
+createTableLeg(-1.75,  0.80);
+createTableLeg( 1.75,  0.80);
 
     // ==================================================
     // HELPERS
@@ -377,7 +413,7 @@
     // CABLE SELECTOR OBJECTS
     // ==================================================
     const cableShelf = new THREE.Group();
-    cableShelf.position.set(-1.9, 0, -0.25);
+cableShelf.position.set(0, TABLE_TOP_Y + 0.08, -0.35);
     scene.add(cableShelf);
 
     const shelf = new THREE.Mesh(
@@ -601,9 +637,18 @@
         scene.add(modelRoot);
 
         // Моделийн хэмжээг багасгана
-        modelRoot.scale.set(0.10, 0.10, 0.10);
+        scene.add(modelRoot);
 
-        placeModelOnFloor(modelRoot);
+// ==================================================
+// MODEL SIZE
+// ==================================================
+modelRoot.scale.set(0.22, 0.22, 0.22);
+
+// ==================================================
+// MODEL PLACE ON TABLE
+// ==================================================
+const modelBoxBefore = new THREE.Box3().setFromObject(modelRoot);
+modelRoot.position.y += TABLE_TOP_Y - modelBoxBefore.min.y + 0.04;    
 
         PC1 = modelRoot.getObjectByName("PC1");
         PC2 = modelRoot.getObjectByName("PC2");
@@ -626,13 +671,13 @@
         const pc1PortWorld = new THREE.Vector3(
           box1.max.x - 0.70,
           box1.min.y + 0.10,
-          box1.max.z + 0.12
+          box1.max.z - 0.05
         );
 
         const pc2PortWorld = new THREE.Vector3(
           box2.max.x - 0.40,
           box2.min.y + 0.10,
-          box2.min.z + 0.12
+          box2.max.z - 0.05
         );
 
         PC1_PORT = createCodePort("PC1_Port", "PC1", pc1PortWorld);
@@ -645,6 +690,8 @@
         addTopLabel(PC2, "PC2");
 
         frameObject(modelRoot);
+controls.target.y = TABLE_TOP_Y + 0.12;
+camera.position.y += 0.25;
 
         statusEl.textContent = "Бэлэн";
         setMessage("Model ачааллаа.\nУлаан портууд кодоор нэмэгдлээ.\nЭхлээд кабель сонго, дараа нь 2 порт сонго.");
