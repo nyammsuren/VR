@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PC to PC Cable Lab</title>
+  <title>VR PC to PC Cable Lab</title>
 
   <script type="importmap">
   {
@@ -27,19 +27,19 @@
       position: fixed;
       left: 12px;
       top: 12px;
-      z-index: 10;
+      z-index: 20;
       color: #f2f4f8;
-      background: rgba(0,0,0,.5);
+      background: rgba(0,0,0,.52);
       border: 1px solid rgba(255,255,255,.12);
       border-radius: 12px;
       padding: 12px 14px;
-      max-width: 440px;
+      max-width: 460px;
       line-height: 1.45;
       font-size: 14px;
     }
 
     #hud b { font-size: 15px; }
-    #hud .muted { opacity: .8; font-size: 12px; }
+    #hud .muted { opacity: .82; font-size: 12px; }
     #hud .sel { color: #ffd166; }
     #hud .ok { color: #73ff9f; }
     #hud .bad { color: #ff7575; }
@@ -48,13 +48,13 @@
       position: fixed;
       left: 12px;
       bottom: 12px;
-      z-index: 10;
+      z-index: 20;
       color: white;
       background: rgba(0,0,0,.55);
       border: 1px solid rgba(255,255,255,.12);
       border-radius: 12px;
       padding: 10px 12px;
-      max-width: 480px;
+      max-width: 500px;
       min-height: 20px;
       white-space: pre-line;
       font-size: 14px;
@@ -78,25 +78,27 @@
 </head>
 <body>
   <div id="hud">
-    <div><b>PC ↔ PC Cable Lab</b></div>
+    <div><b>VR PC ↔ PC Cable Lab</b></div>
     <div>Даалгавар: <span class="sel">PC1 ↔ PC2 холбоно</span></div>
-    <div>Эхлээд кабель сонгоод дараа нь <b>2 порт</b> дарна.</div>
+    <div>Эхлээд кабель сонгоод дараа нь <b>2 порт</b> сонго.</div>
     <div class="muted">PC ↔ PC үед зөв кабель: <b>Crossover</b></div>
-    <div class="muted">Straight cable сонговол буруу гэж үзнэ</div>
+    <div class="muted">Straight cable сонговол буруу</div>
     <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:8px 0;">
     <div>Сонгосон кабель: <span id="selectedCable">байхгүй</span></div>
     <div>Сонгосон порт 1: <span id="selectedPort">байхгүй</span></div>
     <div>Зөв холболт: <span id="score" class="ok">0 / 1</span></div>
     <div>Төлөв: <span id="status">Хүлээж байна</span></div>
-    <div class="muted">Mouse: click</div>
+    <div class="muted">Desktop: click</div>
+    <div class="muted">VR: controller чиглүүлээд trigger/select</div>
     <button id="resetBtn">Дахин эхлэх</button>
   </div>
 
-  <div id="message">Эхлээд Crossover cable эсвэл Straight cable-оос нэгийг сонго.</div>
+  <div id="message">Эхлээд кабель сонго. VR орох бол Enter VR дар.</div>
 
   <script type="module">
     import * as THREE from "three";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
 
     const selectedCableEl = document.getElementById("selectedCable");
     const selectedPortEl = document.getElementById("selectedPort");
@@ -116,17 +118,19 @@
     scene.background = new THREE.Color(0x10141c);
 
     const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 2.2, 6.8);
+    camera.position.set(0, 2.0, 6.8);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.xr.enabled = true;
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild(VRButton.createButton(renderer));
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.95);
     scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.05);
     dir.position.set(6, 8, 8);
     scene.add(dir);
 
@@ -141,7 +145,7 @@
     scene.add(grid);
 
     /* -----------------------------
-       Simple orbit controls
+       Orbit controls (desktop)
     ----------------------------- */
     class MiniOrbitControls {
       constructor(camera, domElement) {
@@ -163,8 +167,8 @@
         this.panSpeed = 0.9;
         this.damping = 0.10;
 
-        this.minDistance = 3;
-        this.maxDistance = 14;
+        this.minDistance = 2.8;
+        this.maxDistance = 14.0;
 
         this.init();
       }
@@ -173,19 +177,21 @@
         this.domElement.addEventListener("contextmenu", e => e.preventDefault());
 
         this.domElement.addEventListener("pointerdown", e => {
+          if (renderer.xr.isPresenting) return;
           this.domElement.setPointerCapture(e.pointerId);
           this._start.set(e.clientX, e.clientY);
           this._state = e.button === 2 ? "pan" : "rotate";
         });
 
         this.domElement.addEventListener("pointermove", e => {
+          if (renderer.xr.isPresenting) return;
           if (this._state === "none") return;
 
           this._delta.set(e.clientX - this._start.x, e.clientY - this._start.y);
 
           if (this._state === "rotate") {
             this.sphericalDelta.theta -= 2 * Math.PI * this._delta.x / this.domElement.clientHeight * this.rotateSpeed;
-            this.sphericalDelta.phi -= 2 * Math.PI * this._delta.y / this.domElement.clientHeight * this.rotateSpeed;
+            this.sphericalDelta.phi   -= 2 * Math.PI * this._delta.y / this.domElement.clientHeight * this.rotateSpeed;
           } else {
             this.pan(this._delta.x, this._delta.y);
           }
@@ -194,11 +200,13 @@
         });
 
         this.domElement.addEventListener("pointerup", e => {
+          if (renderer.xr.isPresenting) return;
           this._state = "none";
           try { this.domElement.releasePointerCapture(e.pointerId); } catch {}
         });
 
         this.domElement.addEventListener("wheel", e => {
+          if (renderer.xr.isPresenting) return;
           e.preventDefault();
           const delta = e.deltaY < 0 ? 0.92 : 1.08;
           this.zoomScale *= Math.pow(delta, this.zoomSpeed);
@@ -208,6 +216,7 @@
       pan(dx, dy) {
         const offset = new THREE.Vector3().copy(this.camera.position).sub(this.target);
         const dist = offset.length();
+
         const panX = (2 * dx * dist / this.domElement.clientHeight) * this.panSpeed;
         const panY = (2 * dy * dist / this.domElement.clientHeight) * this.panSpeed;
 
@@ -244,7 +253,7 @@
     const controls = new MiniOrbitControls(camera, renderer.domElement);
 
     /* -----------------------------
-       Helpers
+       Helper UI labels
     ----------------------------- */
     function makeLabelSprite(text, color = "#ffffff", bg = "rgba(0,0,0,0.65)") {
       const canvas = document.createElement("canvas");
@@ -272,53 +281,6 @@
       return sprite;
     }
 
-    function setPortState(port, state) {
-      if (!port || !port.material) return;
-
-      if (state === "idle") {
-        port.material.color.set(0xcccccc);
-        port.material.emissive.set(0x000000);
-      } else if (state === "selected") {
-        port.material.color.set(0xffcc33);
-        port.material.emissive.set(0x554400);
-      } else if (state === "valid") {
-        port.material.color.set(0x66ff88);
-        port.material.emissive.set(0x114422);
-      } else if (state === "invalid") {
-        port.material.color.set(0xff6666);
-        port.material.emissive.set(0x441111);
-      } else if (state === "hover") {
-        port.material.emissive.set(0x222222);
-      }
-    }
-
-    function createCableCurve(start, end, color) {
-      const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-      mid.y += 0.8;
-
-      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-      const points = curve.getPoints(40);
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({ color });
-      const line = new THREE.Line(geometry, material);
-
-      return { line, curve };
-    }
-
-    function addPacketFlow(curve) {
-      const packet = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 14, 14),
-        new THREE.MeshBasicMaterial({ color: 0x00e5ff })
-      );
-      scene.add(packet);
-
-      packetFlows.push({
-        mesh: packet,
-        curve,
-        t: Math.random()
-      });
-    }
-
     /* -----------------------------
        State
     ----------------------------- */
@@ -340,7 +302,7 @@
        Cable selectors
     ----------------------------- */
     const cableShelf = new THREE.Group();
-    cableShelf.position.set(-5.2, 0, -0.2);
+    cableShelf.position.set(-5.2, 0, -0.4);
     scene.add(cableShelf);
 
     const shelf = new THREE.Mesh(
@@ -379,7 +341,80 @@
     createCableSelector("Crossover cable", "crossover", 0xf97316, 0.45);
 
     /* -----------------------------
-       Load GLB
+       Port visuals
+    ----------------------------- */
+    function ensurePortMaterial(port) {
+      if (!port.material || !port.material.isMaterial) {
+        port.material = new THREE.MeshPhongMaterial({ color: 0xcccccc, emissive: 0x000000 });
+      } else {
+        port.material = port.material.clone();
+        if (port.material.color) port.material.color.set(0xcccccc);
+        if ("emissive" in port.material) {
+          port.material.emissive = new THREE.Color(0x000000);
+        }
+      }
+    }
+
+    function setPortState(port, state) {
+      if (!port || !port.material) return;
+
+      if (state === "idle") {
+        if (port.material.color) port.material.color.set(0xcccccc);
+        if ("emissive" in port.material) port.material.emissive.set(0x000000);
+      } else if (state === "selected") {
+        if (port.material.color) port.material.color.set(0xffcc33);
+        if ("emissive" in port.material) port.material.emissive.set(0x554400);
+      } else if (state === "valid") {
+        if (port.material.color) port.material.color.set(0x66ff88);
+        if ("emissive" in port.material) port.material.emissive.set(0x114422);
+      } else if (state === "invalid") {
+        if (port.material.color) port.material.color.set(0xff6666);
+        if ("emissive" in port.material) port.material.emissive.set(0x441111);
+      } else if (state === "hover") {
+        if (port.material.color) port.material.color.set(0xe5e7eb);
+        if ("emissive" in port.material) port.material.emissive.set(0x222222);
+      }
+    }
+
+    /* -----------------------------
+       Tube cable
+    ----------------------------- */
+    function createCableTube(start, end, color) {
+      const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+      mid.y += 0.55;
+
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+
+      const geometry = new THREE.TubeGeometry(curve, 36, 0.03, 12, false);
+      const material = new THREE.MeshPhongMaterial({
+        color,
+        emissive: 0x000000,
+        shininess: 70
+      });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      scene.add(mesh);
+
+      return { mesh, curve };
+    }
+
+    function addPacketFlow(curve, color) {
+      const packet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 16, 16),
+        new THREE.MeshBasicMaterial({ color })
+      );
+      scene.add(packet);
+
+      packetFlows.push({
+        mesh: packet,
+        curve,
+        t: Math.random(),
+        speed: 0.01
+      });
+    }
+
+    /* -----------------------------
+       GLB load
     ----------------------------- */
     const loader = new GLTFLoader();
 
@@ -389,7 +424,6 @@
         const model = gltf.scene;
         scene.add(model);
 
-        // Хэрэв хэмжээ өөр байвал доорх мөрийг тохируул
         model.scale.set(1, 1, 1);
         model.position.set(0, 0, 0);
 
@@ -399,21 +433,14 @@
         PC2_PORT = model.getObjectByName("PC2_Port");
 
         if (!PC1 || !PC2 || !PC1_PORT || !PC2_PORT) {
-          setMessage("GLB доторх object нэр буруу байна.\nPC1, PC2, PC1_Port, PC2_Port нэрүүдийг шалга.");
+          console.error("Missing object names:", { PC1, PC2, PC1_PORT, PC2_PORT });
+          setMessage("GLB дотор object нэр буруу байна.\nPC1, PC2, PC1_Port, PC2_Port нэрүүдийг шалга.");
           statusEl.textContent = "Object нэр олдсонгүй";
-          console.error("Objects not found:", { PC1, PC2, PC1_PORT, PC2_PORT });
           return;
         }
 
-        // Портууд дээр material clone хийж өгнө
         [PC1_PORT, PC2_PORT].forEach((port, i) => {
-          if (!port.material || !port.material.isMaterial) {
-            port.material = new THREE.MeshPhongMaterial({ color: 0xcccccc, emissive: 0x000000 });
-          } else {
-            port.material = port.material.clone();
-            port.material.color.set(0xcccccc);
-            port.material.emissive = new THREE.Color(0x000000);
-          }
+          ensurePortMaterial(port);
 
           port.userData.kind = "port";
           port.userData.deviceType = "pc";
@@ -422,9 +449,9 @@
 
           ports.push(port);
           interactables.push(port);
+          setPortState(port, "idle");
         });
 
-        // Label нэмнэ
         const label1 = makeLabelSprite("PC1");
         label1.position.set(0, 1.8, 0);
         PC1.add(label1);
@@ -433,14 +460,14 @@
         label2.position.set(0, 1.8, 0);
         PC2.add(label2);
 
-        setMessage("Model ачаалагдлаа.\nЭхлээд кабель сонго.");
         statusEl.textContent = "Бэлэн";
+        setMessage("Model ачаалагдлаа.\nЭхлээд кабель сонго. VR орох бол Enter VR дар.");
       },
       undefined,
-      (err) => {
-        console.error(err);
-        setMessage("pc_network.glb файл ачаалагдсангүй.\nФайлын нэр, байрлалыг шалга.");
+      (error) => {
+        console.error(error);
         statusEl.textContent = "GLB load error";
+        setMessage("pc_network.glb ачаалагдсангүй.\nФайлын нэр, замаа шалга.");
       }
     );
 
@@ -465,7 +492,6 @@
 
       if (okCount === 1) {
         statusEl.textContent = "Амжилттай";
-        setMessage("PC1 ↔ PC2 зөв холбогдлоо.\nОдоо мэдээлэл дамжиж байна.");
       }
     }
 
@@ -499,9 +525,10 @@
       const worldA = portA.getWorldPosition(new THREE.Vector3());
       const worldB = portB.getWorldPosition(new THREE.Vector3());
 
-      const color = valid ? 0x4ade80 : 0xff3b3b;
-      const { line, curve } = createCableCurve(worldA, worldB, color);
-      scene.add(line);
+      const cableColor = valid ? 0x22c55e : 0xff2d2d;
+      const packetColor = valid ? 0x73ff9f : 0xff6666;
+
+      const { mesh, curve } = createCableTube(worldA, worldB, cableColor);
 
       const conn = {
         portA,
@@ -510,7 +537,7 @@
         bDevice: portB.userData.deviceName,
         cableType,
         valid,
-        line,
+        mesh,
         curve
       };
 
@@ -521,21 +548,28 @@
         portB.userData.connected = true;
         setPortState(portA, "valid");
         setPortState(portB, "valid");
-        addPacketFlow(curve);
+
+        mesh.material.emissive.set(0x113311);
+
+        addPacketFlow(curve, packetColor);
+        addPacketFlow(curve, packetColor);
 
         statusEl.textContent = "Зөв холболт";
-        setMessage(`Зөв холбоо:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nPacket/data дамжиж байна.`);
+        setMessage(`Зөв холбоо:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nНогоон data animation явж байна.`);
         updateUI();
       } else {
         setPortState(portA, "invalid");
         setPortState(portB, "invalid");
+
+        mesh.material.emissive.set(0x330000);
+
         statusEl.textContent = "Буруу холболт";
-        setMessage(`Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nPC ↔ PC үед crossover cable ашиглана.`);
+        setMessage(`Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nУлаан кабель. PC ↔ PC үед crossover cable ашиглана.`);
 
         setTimeout(() => {
-          scene.remove(line);
-          line.geometry.dispose();
-          line.material.dispose();
+          scene.remove(mesh);
+          mesh.geometry.dispose();
+          mesh.material.dispose();
 
           const idx = connections.indexOf(conn);
           if (idx !== -1) connections.splice(idx, 1);
@@ -596,9 +630,9 @@
 
     function resetLab() {
       for (const conn of connections) {
-        scene.remove(conn.line);
-        conn.line.geometry.dispose();
-        conn.line.material.dispose();
+        scene.remove(conn.mesh);
+        conn.mesh.geometry.dispose();
+        conn.mesh.material.dispose();
       }
       connections.length = 0;
 
@@ -619,17 +653,19 @@
       selectedHighlight = null;
 
       statusEl.textContent = "Дахин эхэлсэн";
-      setMessage("Лаборатори дахин эхэллээ.\nЭхлээд кабель сонго.");
+      setMessage("Лаборатори дахин эхэллээ.\nЭхлээд кабель сонго. VR орох бол Enter VR дар.");
       updateUI();
     }
 
     /* -----------------------------
-       Raycasting
+       Raycasting desktop
     ----------------------------- */
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
     renderer.domElement.addEventListener("pointerdown", (e) => {
+      if (renderer.xr.isPresenting) return;
+
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -643,12 +679,18 @@
     });
 
     renderer.domElement.addEventListener("pointermove", (e) => {
+      if (renderer.xr.isPresenting) return;
+
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects(interactables, false);
+      updateHoverFromRay(raycaster);
+    });
+
+    function updateHoverFromRay(raycasterObj) {
+      const hits = raycasterObj.intersectObjects(interactables, false);
       const hit = hits[0]?.object;
 
       if (
@@ -666,6 +708,39 @@
       } else {
         selectedHighlight = null;
       }
+    }
+
+    /* -----------------------------
+       VR controller
+    ----------------------------- */
+    const controller = renderer.xr.getController(0);
+    scene.add(controller);
+
+    const laserGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1)
+    ]);
+
+    const laser = new THREE.Line(
+      laserGeometry,
+      new THREE.LineBasicMaterial({ color: 0xffffff })
+    );
+    laser.name = "laser";
+    laser.scale.z = 10;
+    controller.add(laser);
+
+    const tempMatrix = new THREE.Matrix4();
+    const vrRaycaster = new THREE.Raycaster();
+
+    controller.addEventListener("selectstart", () => {
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+      vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      vrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+      const hits = vrRaycaster.intersectObjects(interactables, false);
+      if (hits.length > 0) {
+        handleSelection(hits[0].object);
+      }
     });
 
     /* -----------------------------
@@ -677,26 +752,31 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    resetBtn.addEventListener("click", resetLab);
+
     /* -----------------------------
        Animate
     ----------------------------- */
-    function animate() {
-      requestAnimationFrame(animate);
-
-      controls.update();
+    renderer.setAnimationLoop(() => {
+      if (!renderer.xr.isPresenting) {
+        controls.update();
+      } else {
+        tempMatrix.identity().extractRotation(controller.matrixWorld);
+        vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        vrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+        updateHoverFromRay(vrRaycaster);
+      }
 
       for (const flow of packetFlows) {
-        flow.t += 0.01;
+        flow.t += flow.speed;
         if (flow.t > 1) flow.t = 0;
         flow.mesh.position.copy(flow.curve.getPoint(flow.t));
       }
 
       renderer.render(scene, camera);
-    }
+    });
 
-    animate();
     updateUI();
-    resetBtn.addEventListener("click", resetLab);
   </script>
 </body>
 </html>
