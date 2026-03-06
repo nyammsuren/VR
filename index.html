@@ -275,7 +275,7 @@
 
     function createCodePort(name, deviceName, worldPos) {
       const port = new THREE.Mesh(
-        new THREE.SphereGeometry(0.15, 10, 10),
+        new THREE.SphereGeometry(0.18, 15, 15),
         new THREE.MeshPhongMaterial({
           color: 0xff2d2d,
           emissive: 0x550000
@@ -624,15 +624,15 @@
         // ---------- Кодын аргаар улаан портууд нэмнэ ----------
         // monitor-ийн баруун доод тал орчимд тавьж байна
         const pc1PortWorld = new THREE.Vector3(
-          box1.max.x - 0.80,
+          box1.max.x - 0.70,
           box1.min.y + 0.10,
           box1.max.z + 0.12
         );
 
         const pc2PortWorld = new THREE.Vector3(
-          box2.max.x - 0.50,
+          box2.max.x - 0.40,
           box2.min.y + 0.10,
-          box2.min.z + 0.10
+          box2.min.z + 0.12
         );
 
         PC1_PORT = createCodePort("PC1_Port", "PC1", pc1PortWorld);
