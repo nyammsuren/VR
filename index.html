@@ -22,6 +22,7 @@
       background: #0f1115;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
+
     #hud {
       position: fixed;
       left: 12px;
@@ -36,11 +37,13 @@
       line-height: 1.4;
       font-size: 14px;
     }
+
     #hud b { font-size: 15px; }
     #hud .muted { opacity: .8; font-size: 12px; }
     #hud .ok { color: #73ff9f; }
     #hud .bad { color: #ff7575; }
     #hud .sel { color: #ffd166; }
+
     #message {
       position: fixed;
       left: 12px;
@@ -55,6 +58,21 @@
       min-height: 20px;
       white-space: pre-line;
       font-size: 14px;
+    }
+
+    #resetBtn {
+      margin-top: 10px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 8px;
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    #resetBtn:hover {
+      background: #1d4ed8;
     }
   </style>
 </head>
@@ -72,6 +90,7 @@
     <div>Төлөв: <span id="status">Хүлээж байна</span></div>
     <div class="muted">Desktop: click</div>
     <div class="muted">VR: controller чиглүүлээд trigger/select</div>
+    <button id="resetBtn">Дахин эхлэх</button>
   </div>
 
   <div id="message">Эхлээд Straight cable сонго.</div>
@@ -85,6 +104,7 @@
     const scoreEl = document.getElementById("score");
     const statusEl = document.getElementById("status");
     const messageEl = document.getElementById("message");
+    const resetBtn = document.getElementById("resetBtn");
 
     function setMessage(msg) {
       messageEl.textContent = msg;
@@ -151,34 +171,42 @@
 
         this.init();
       }
+
       init() {
         this.domElement.addEventListener("contextmenu", e => e.preventDefault());
+
         this.domElement.addEventListener("pointerdown", e => {
           this.domElement.setPointerCapture(e.pointerId);
           this._start.set(e.clientX, e.clientY);
           this._state = e.button === 2 ? "pan" : "rotate";
         });
+
         this.domElement.addEventListener("pointermove", e => {
           if (this._state === "none") return;
           this._delta.set(e.clientX - this._start.x, e.clientY - this._start.y);
+
           if (this._state === "rotate") {
             this.sphericalDelta.theta -= 2 * Math.PI * this._delta.x / this.domElement.clientHeight * this.rotateSpeed;
             this.sphericalDelta.phi   -= 2 * Math.PI * this._delta.y / this.domElement.clientHeight * this.rotateSpeed;
           } else {
             this.pan(this._delta.x, this._delta.y);
           }
+
           this._start.set(e.clientX, e.clientY);
         });
+
         this.domElement.addEventListener("pointerup", e => {
           this._state = "none";
           try { this.domElement.releasePointerCapture(e.pointerId); } catch {}
         });
+
         this.domElement.addEventListener("wheel", e => {
           e.preventDefault();
           const delta = e.deltaY < 0 ? 0.92 : 1.08;
           this.zoomScale *= Math.pow(delta, this.zoomSpeed);
         }, { passive: false });
       }
+
       pan(dx, dy) {
         const offset = new THREE.Vector3().copy(this.camera.position).sub(this.target);
         const dist = offset.length();
@@ -192,6 +220,7 @@
         this.panOffset.addScaledVector(right, panX);
         this.panOffset.addScaledVector(up, panY);
       }
+
       update() {
         const offset = new THREE.Vector3().copy(this.camera.position).sub(this.target);
         this.spherical.setFromVector3(offset);
@@ -448,8 +477,8 @@
     const REQUIRED_LINKS = new Set([
       "PC1|SW1",
       "PC2|SW2",
-      "SW1|Router",
-      "SW2|Router"
+      "Router|SW1",
+      "Router|SW2"
     ]);
 
     function normalizePair(a, b) {
@@ -470,7 +499,9 @@
     }
 
     function resetPortSelection() {
-      if (firstPort) setPortState(firstPort, firstPort.userData.connected ? "valid" : "idle");
+      if (firstPort) {
+        setPortState(firstPort, firstPort.userData.connected ? "valid" : "idle");
+      }
       firstPort = null;
       updateUI();
     }
@@ -545,6 +576,7 @@
         line,
         curve
       };
+
       connections.push(conn);
 
       if (valid) {
@@ -556,18 +588,29 @@
 
         statusEl.textContent = "Зөв холболт";
         setMessage(`Зөв холбоо:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nPacket/data дамжиж байна.`);
+        updateUI();
       } else {
         setPortState(portA, "invalid");
         setPortState(portB, "invalid");
         statusEl.textContent = "Буруу холболт";
-        setMessage(`Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nМэдээлэл дамжихгүй.`);
+        setMessage(`Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nКабель саллаа. Дахин зөв холбоно уу.`);
+
         setTimeout(() => {
+          scene.remove(line);
+          line.geometry.dispose();
+          line.material.dispose();
+
+          const index = connections.indexOf(conn);
+          if (index !== -1) connections.splice(index, 1);
+
           if (!portA.userData.connected) setPortState(portA, "idle");
           if (!portB.userData.connected) setPortState(portB, "idle");
-        }, 900);
-      }
 
-      updateUI();
+          selectedCableType = null;
+          statusEl.textContent = "Буруу холболтыг салгасан";
+          updateUI();
+        }, 1200);
+      }
     }
 
     function handleSelection(obj) {
@@ -614,6 +657,35 @@
       }
     }
 
+    function resetLab() {
+      for (const conn of connections) {
+        scene.remove(conn.line);
+        conn.line.geometry.dispose();
+        conn.line.material.dispose();
+      }
+      connections.length = 0;
+
+      for (const flow of packetFlows) {
+        scene.remove(flow.mesh);
+        flow.mesh.geometry.dispose();
+        flow.mesh.material.dispose();
+      }
+      packetFlows.length = 0;
+
+      for (const port of ports) {
+        port.userData.connected = false;
+        setPortState(port, "idle");
+      }
+
+      firstPort = null;
+      selectedCableType = null;
+      selectedHighlight = null;
+
+      statusEl.textContent = "Дахин эхэлсэн";
+      setMessage("Лаборатори дахин эхэллээ.\nЭхлээд Straight cable сонго.");
+      updateUI();
+    }
+
     /* -----------------------------
        Raycasting: desktop + VR
     ----------------------------- */
@@ -636,6 +708,7 @@
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1)
     ]);
+
     const laser = new THREE.Line(
       laserGeom,
       new THREE.LineBasicMaterial({ color: 0xffffff })
@@ -657,18 +730,16 @@
     /* -----------------------------
        Hover highlight in VR/desktop
     ----------------------------- */
-    function clearHover() {
-      if (selectedHighlight && !selectedHighlight.userData.connected && selectedHighlight !== firstPort) {
-        setPortState(selectedHighlight, "idle");
-      }
-      selectedHighlight = null;
-    }
-
     function updateHoverFromRay(raycasterObj) {
       const hits = raycasterObj.intersectObjects(interactables, false);
       const hit = hits[0]?.object;
 
-      if (selectedHighlight && selectedHighlight !== hit && !selectedHighlight.userData.connected && selectedHighlight !== firstPort) {
+      if (
+        selectedHighlight &&
+        selectedHighlight !== hit &&
+        !selectedHighlight.userData.connected &&
+        selectedHighlight !== firstPort
+      ) {
         setPortState(selectedHighlight, "idle");
       }
 
@@ -682,6 +753,7 @@
 
     renderer.domElement.addEventListener("pointermove", (e) => {
       if (renderer.xr.isPresenting) return;
+
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -723,6 +795,7 @@
     });
 
     updateUI();
+    resetBtn.addEventListener("click", resetLab);
   </script>
 </body>
 </html>
