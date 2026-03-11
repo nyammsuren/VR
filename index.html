@@ -79,16 +79,7 @@
 <body>
   <div id="hud">
     <div><b>VR PC ↔ PC Cable Lab</b></div>
-    <div>Даалгавар: <span class="sel">2 компьютерийн улаан портыг холбоно</span></div>
-    <div>1. Кабель сонго</div>
-    <div>2. Эхний порт сонго</div>
-    <div>3. Хоёр дахь порт сонго</div>
-    <div class="muted">PC ↔ PC үед зөв кабель: <b>Crossover</b></div>
-    <div class="muted">Straight cable сонговол буруу</div>
-    <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:8px 0;">
-    <div>Сонгосон кабель: <span id="selectedCable">байхгүй</span></div>
-    <div>Сонгосон порт 1: <span id="selectedPort">байхгүй</span></div>
-    <div>Зөв холболт: <span id="score" class="ok">0 / 1</span></div>
+    
     <div>Төлөв: <span id="status">Model ачаалж байна...</span></div>
     <div class="muted">Desktop: click</div>
     <div class="muted">VR: controller чиглүүлээд trigger/select</div>
@@ -391,234 +382,10 @@ createTableLeg( 3,  2);
       });
     }
 
-    // ==================================================
-    // STATE
-    // ==================================================
-    const interactables = [];
-    const ports = [];
-    const connections = [];
-    const packetFlows = [];
+    
+    
 
-    let modelRoot = null;
-    let PC1 = null;
-    let PC2 = null;
-    let PC1_PORT = null;
-    let PC2_PORT = null;
-
-    let selectedCableType = null;
-    let firstPort = null;
-    let selectedHighlight = null;
-    let blinkingInvalid = null;
-
-    // ==================================================
-    // CABLE SELECTOR OBJECTS
-    // ==================================================
-    const cableShelf = new THREE.Group();
-cableShelf.position.set(0, TABLE_TOP_Y + 0.08, -0.35);
-    scene.add(cableShelf);
-
-    const shelf = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.16, 1.5),
-      new THREE.MeshPhongMaterial({ color: 0x3a3f48 })
-    );
-    shelf.position.set(0, 0.08, 0);
-    cableShelf.add(shelf);
-
-    createCableSelector(cableShelf, "Straight cable", "straight", 0x4ade80, -0.30);
-    createCableSelector(cableShelf, "Crossover cable", "crossover", 0xf97316, 0.30);
-
-    // ==================================================
-    // UI UPDATE
-    // ==================================================
-    function updateUI() {
-      selectedCableEl.textContent = selectedCableType ?? "байхгүй";
-      selectedPortEl.textContent = firstPort
-        ? `${firstPort.userData.deviceName} / ${firstPort.name}`
-        : "байхгүй";
-
-      const okCount = connections.filter(c => c.valid).length;
-      scoreEl.textContent = `${okCount} / 1`;
-
-      if (okCount === 1) {
-        statusEl.textContent = "Амжилттай";
-      }
-    }
-
-    function resetPortSelection() {
-      if (firstPort) {
-        setPortState(firstPort, firstPort.userData.connected ? "valid" : "idle");
-      }
-      firstPort = null;
-      updateUI();
-    }
-
-    // ==================================================
-    // CONNECTION LOGIC
-    // ==================================================
-    function isSameConnectionAlreadyExists(portA, portB) {
-      return connections.some(c =>
-        (c.portA === portA && c.portB === portB) ||
-        (c.portA === portB && c.portB === portA)
-      );
-    }
-
-    function isValidConnection(portA, portB, cableType) {
-      if (portA === portB) return false;
-      if (portA.userData.deviceName === portB.userData.deviceName) return false;
-      if (portA.userData.connected || portB.userData.connected) return false;
-
-      // PC ↔ PC үед зөв кабель = crossover
-      return cableType === "crossover";
-    }
-
-    function removeConnection(conn) {
-      if (!conn) return;
-
-      scene.remove(conn.line);
-      conn.line.geometry.dispose();
-      conn.line.material.dispose();
-
-      const idx = connections.indexOf(conn);
-      if (idx !== -1) connections.splice(idx, 1);
-    }
-
-    function createConnection(portA, portB, cableType, valid) {
-      const worldA = portA.getWorldPosition(new THREE.Vector3());
-      const worldB = portB.getWorldPosition(new THREE.Vector3());
-
-      const cableColor = valid ? 0x22c55e : 0xff2d2d;
-      const packetColor = valid ? 0x73ff9f : 0xff4444;
-
-      const { line, curve } = createCableCurve(worldA, worldB, cableColor);
-
-      const conn = {
-        portA,
-        portB,
-        valid,
-        line,
-        curve
-      };
-
-      connections.push(conn);
-
-      if (valid) {
-        portA.userData.connected = true;
-        portB.userData.connected = true;
-        setPortState(portA, "valid");
-        setPortState(portB, "valid");
-
-        addPacketFlow(curve, packetColor);
-        addPacketFlow(curve, packetColor);
-
-        statusEl.textContent = "Зөв холболт";
-        setMessage(
-          `Зөв холбоо:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nНогоон кабель ба ногоон animation явж байна.`
-        );
-      } else {
-        setPortState(portA, "invalid");
-        setPortState(portB, "invalid");
-
-        statusEl.textContent = "Буруу холболт";
-        setMessage(
-          `Буруу холболт:\n${portA.userData.deviceName} ↔ ${portB.userData.deviceName}\nУлаан кабель анивчина.`
-        );
-
-        blinkingInvalid = {
-          line,
-          startTime: performance.now(),
-          duration: 1500
-        };
-
-        setTimeout(() => {
-          removeConnection(conn);
-
-          if (!portA.userData.connected) setPortState(portA, "idle");
-          if (!portB.userData.connected) setPortState(portB, "idle");
-
-          if (blinkingInvalid && blinkingInvalid.line === line) {
-            blinkingInvalid = null;
-          }
-
-          selectedCableType = null;
-          statusEl.textContent = "Буруу холболтыг салгасан";
-          updateUI();
-        }, 1500);
-      }
-
-      updateUI();
-    }
-
-    function handleSelection(obj) {
-      if (!obj) return;
-
-      if (obj.userData.kind === "cableSelector") {
-        selectedCableType = obj.userData.cableType;
-        statusEl.textContent = "Кабель сонгосон";
-        setMessage(`${obj.userData.label} сонголоо.\nОдоо 2 порт сонго.`);
-        updateUI();
-        return;
-      }
-
-      if (obj.userData.kind === "port") {
-        if (!selectedCableType) {
-          statusEl.textContent = "Кабель сонгоогүй";
-          setMessage("Эхлээд кабель сонго.");
-          return;
-        }
-
-        if (!firstPort) {
-          firstPort = obj;
-          setPortState(firstPort, "selected");
-          statusEl.textContent = "Эхний порт сонгосон";
-          setMessage(`Эхний порт:\n${obj.userData.deviceName}\nОдоо 2 дахь порт сонго.`);
-          updateUI();
-          return;
-        }
-
-        if (obj === firstPort) {
-          setMessage("Өөр порт сонго.");
-          return;
-        }
-
-        if (isSameConnectionAlreadyExists(firstPort, obj)) {
-          setMessage("Энэ холбоо аль хэдийн үүссэн.");
-          resetPortSelection();
-          return;
-        }
-
-        const valid = isValidConnection(firstPort, obj, selectedCableType);
-        createConnection(firstPort, obj, selectedCableType, valid);
-        resetPortSelection();
-      }
-    }
-
-    function resetLab() {
-      for (const conn of [...connections]) {
-        removeConnection(conn);
-      }
-
-      for (const flow of packetFlows) {
-        scene.remove(flow.mesh);
-        flow.mesh.geometry.dispose();
-        flow.mesh.material.dispose();
-      }
-      packetFlows.length = 0;
-
-      for (const port of ports) {
-        port.userData.connected = false;
-        setPortState(port, "idle");
-      }
-
-      firstPort = null;
-      selectedCableType = null;
-      selectedHighlight = null;
-      blinkingInvalid = null;
-
-      statusEl.textContent = "Дахин эхэлсэн";
-      setMessage("Лаборатори дахин эхэллээ.\nЭхлээд кабель сонго.");
-      updateUI();
-    }
-
+    
     // ==================================================
     // MODEL LOAD
     // ==================================================
@@ -643,7 +410,7 @@ cableShelf.position.set(0, TABLE_TOP_Y + 0.08, -0.35);
 // ==================================================
 // MODEL SIZE
 // ==================================================
-modelRoot.scale.set(0.22, 0.22, 0.22);
+modelRoot.scale.set(1, 1, 1);
 
 // ==================================================
 // MODEL PLACE ON TABLE
@@ -839,4 +606,5 @@ camera.position.y += 0.25;
 </body>
 
 </html>
+
 
