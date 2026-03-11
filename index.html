@@ -78,12 +78,10 @@
 </head>
 <body>
   <div id="hud">
-    <div><b>VR PC ↔ PC Cable Lab</b></div>
+    <div><b>VR Lab</b></div>
     
     <div>Төлөв: <span id="status">Model ачаалж байна...</span></div>
-    <div class="muted">Desktop: click</div>
-    <div class="muted">VR: controller чиглүүлээд trigger/select</div>
-    <button id="resetBtn">Дахин эхлэх</button>
+ 
   </div>
 
   <div id="message">Model ачаалж байна...</div>
@@ -470,7 +468,7 @@ camera.position.y += 0.25;
       (err) => {
         console.error(err);
         statusEl.textContent = "Model ачаалж чадсангүй";
-        setMessage("pc_network.glb файл олдсонгүй эсвэл ачаалж чадсангүй.");
+        setMessage("glb файл олдсонгүй эсвэл ачаалж чадсангүй.");
       }
     );
 
@@ -570,41 +568,11 @@ camera.position.y += 0.25;
 
     resetBtn.addEventListener("click", resetLab);
 
-    // ==================================================
-    // ANIMATION LOOP
-    // ==================================================
-    renderer.setAnimationLoop(() => {
-      if (!renderer.xr.isPresenting) {
-        controls.update();
-      } else {
-        tempMatrix.identity().extractRotation(controller.matrixWorld);
-        vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-        vrRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-        updateHoverFromRay(vrRaycaster);
-      }
-
-      for (const flow of packetFlows) {
-        flow.t += flow.speed;
-        if (flow.t > 1) flow.t = 0;
-        flow.mesh.position.copy(flow.curve.getPoint(flow.t));
-      }
-
-      if (blinkingInvalid) {
-        const elapsed = performance.now() - blinkingInvalid.startTime;
-        const blink = Math.floor(elapsed / 120) % 2 === 0;
-        blinkingInvalid.line.material.opacity = blink ? 1 : 0.12;
-        blinkingInvalid.line.material.transparent = true;
-
-        if (elapsed > blinkingInvalid.duration) {
-          blinkingInvalid = null;
-        }
-      }
-
-      renderer.render(scene, camera);
-    });
+   
   </script>
 </body>
 
 </html>
+
 
 
